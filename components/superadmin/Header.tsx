@@ -1,9 +1,11 @@
-import { } from "react";
+"use client";
 
-interface HeaderProps {}
-
+import { useState } from "react";
+import Link from "next/link";
 
 export default function Header() {
+  const [query, setQuery] = useState("");
+
   return (
     <header className="sticky top-0 z-40 overflow-x-auto bg-white/90 backdrop-blur-md border-b border-slate-200/80 px-6 py-3 flex items-center justify-between shadow-xs">
       <div className="relative w-full max-w-lg">
@@ -18,11 +20,18 @@ export default function Header() {
               d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
               stroke-linecap="round"
               stroke-linejoin="round"
-              stroke-width="2"
+              strokeWidth="2"
             />
           </svg>
         </span>
         <input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && query.trim()) {
+              window.location.href = `/super-admin/organisations?q=${encodeURIComponent(query.trim())}`;
+            }
+          }}
           className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-full text-xs sm:text-sm text-slate-700 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-600 transition"
           placeholder="Search organizations, facility ID, users, card numbers..."
           type="text"
@@ -35,15 +44,8 @@ export default function Header() {
       </div>
 
       <div className="flex items-center gap-4">
-        <div className="hidden lg:flex items-center gap-2 px-3 py-1.5 rounded-full bg-emerald-50 border border-emerald-100 text-xs text-emerald-700 font-medium">
-          <span className="relative flex h-2 w-2">
-            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-            <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
-          </span>
-          National Card Gateway: 99.98% Normal
-        </div>
-
-        <button
+        <Link
+          href="/super-admin/settings"
           className="p-2 text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-full transition"
           title="System Settings"
         >
@@ -52,18 +54,19 @@ export default function Header() {
               d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"
               stroke-linecap="round"
               stroke-linejoin="round"
-              stroke-width="1.8"
+              strokeWidth="1.8"
             />
             <path
               d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
               stroke-linecap="round"
               stroke-linejoin="round"
-              stroke-width="1.8"
+              strokeWidth="1.8"
             />
           </svg>
-        </button>
+        </Link>
 
-        <button
+        <Link
+          href="/super-admin/audit-logs"
           className="relative p-2 text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-full transition"
           title="Audit & Security Alerts"
         >
@@ -72,25 +75,20 @@ export default function Header() {
               d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"
               stroke-linecap="round"
               stroke-linejoin="round"
-              stroke-width="1.8"
+              strokeWidth="1.8"
             />
           </svg>
           <span className="absolute top-1.5 right-1.5 flex h-2 w-2">
             <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
             <span className="relative inline-flex rounded-full h-2 w-2 bg-rose-500"></span>
           </span>
-        </button>
+        </Link>
 
         <div className="flex items-center gap-3 pl-2 border-l border-slate-200">
           <div className="relative">
             <div className="w-9 h-9 rounded-full bg-gradient-to-tr from-teal-700 to-teal-500 flex items-center justify-center text-white font-bold text-xs ring-2 ring-teal-100 shadow-xs">
-              SA
             </div>
             <span className="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full bg-emerald-500 ring-2 ring-white"></span>
-          </div>
-          <div className="hidden xl:block text-left text-xs">
-            <p className="font-bold text-slate-800 leading-none">System Admin</p>
-            <p className="text-slate-400 text-[10px] mt-0.5">MedOS Infra Root</p>
           </div>
         </div>
       </div>

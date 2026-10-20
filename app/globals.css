@@ -10,12 +10,7 @@
   --color-foreground: var(--foreground);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
+/* no dark-mode override; keep light theme for admin */
 
 body {
   background: var(--background);
