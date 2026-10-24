@@ -2,8 +2,9 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Endod Health | Super Admin Infrastructure Dashboard",
-  description: "Super admin dashboard for the Endod Health MedOS network — infrastructure, facilities, and network monitoring.",
+  title: "Endod Admin",
+  description: "Endod super admin: hospital verifications, organisations and the audit log.",
+  robots: { index: false, follow: false },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

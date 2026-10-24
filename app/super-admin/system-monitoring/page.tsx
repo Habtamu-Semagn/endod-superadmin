@@ -1,31 +1,18 @@
-"use client";
-
-import { useState } from "react";
-import Header from "@/components/superadmin/Header";
-import Sidebar from "@/components/superadmin/Sidebar";
+import { Suspense } from "react";
+import type { Metadata } from "next";
+import AdminShell from "@/components/superadmin/AdminShell";
 import SystemMonitoringContent from "@/components/superadmin/SystemMonitoringContent";
 
-export default function Page() {
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const sidebarWidth = sidebarCollapsed ? "5rem" : "16rem";
+export const metadata: Metadata = {
+  title: "Endod Admin | System Monitoring",
+};
 
+export default function Page() {
   return (
-    <div className="flex h-full flex-col bg-[#f8fafc]">
-      <div className="flex flex-1 overflow-hidden">
-        <Sidebar
-          collapsed={sidebarCollapsed}
-          onToggle={() => setSidebarCollapsed((prev) => !prev)}
-        />
-        <div
-          className="flex-1 flex flex-col overflow-y-auto bg-[#f8fafc]"
-          style={{ paddingLeft: sidebarWidth }}
-        >
-          <Header />
-          <main className="p-6 lg:p-8 space-y-6">
-            <SystemMonitoringContent />
-          </main>
-        </div>
-      </div>
-    </div>
+    <Suspense fallback={<p className="p-8 text-xs text-slate-500">Loading…</p>}>
+      <AdminShell>
+        <SystemMonitoringContent />
+      </AdminShell>
+    </Suspense>
   );
 }

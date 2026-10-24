@@ -2,13 +2,18 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { initials } from "@/lib/format";
 
 interface SidebarProps {
   collapsed: boolean;
   onToggle: () => void;
+  admin: { name: string; email: string } | null;
+  /** Submitted applications waiting for review; null while unknown. */
+  pendingCount: number | null;
+  onSignOut: () => void;
 }
 
-export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
+export default function Sidebar({ collapsed, onToggle, admin, pendingCount, onSignOut }: SidebarProps) {
   const pathname = usePathname();
   const isDashboardActive = pathname === "/super-admin";
   const isOrganisationsActive = pathname.startsWith("/super-admin/organisations");
@@ -36,12 +41,13 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
             </div>
           </div>
           <button
+            type="button"
             onClick={onToggle}
             className={`flex items-center justify-center rounded-lg p-1 transition shrink-0 ${collapsed ? "bg-teal-700 text-white hover:bg-teal-800" : "bg-slate-100 text-slate-500 hover:bg-slate-200 hover:text-slate-700"}`}
             title={collapsed ? "Expand sidebar" : "Minimize sidebar"}
           >
             <svg className={`w-3.5 h-3.5 transition-transform duration-300 ${collapsed ? "rotate-180" : "rotate-0"}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path d="M9 6l7 7-7 7" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" />
+              <path d="M9 6l7 7-7 7" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" />
             </svg>
           </button>
         </div>
@@ -81,7 +87,6 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
               </svg>
               <span className={collapsed ? "hidden" : ""}>Organisations</span>
             </div>
-            <span className="text-xs bg-slate-100 text-slate-600 font-semibold px-2 py-0.5 rounded-full border border-slate-200">{collapsed ? "" : "1,248"}</span>
           </Link>
 
           <Link
@@ -101,7 +106,6 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
               </svg>
               <span className={collapsed ? "hidden" : ""}>Users & Staff</span>
             </div>
-            <span className={`${collapsed ? "hidden" : ""} text-xs bg-emerald-100 text-emerald-700 font-semibold px-2 py-0.5 rounded-full border border-emerald-200`}>842</span>
           </Link>
 
           <Link
@@ -119,7 +123,6 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
               </svg>
               <span className={collapsed ? "hidden" : ""}>Digital Cards</span>
             </div>
-            <span className={`${collapsed ? "hidden" : ""} text-xs bg-emerald-100 text-emerald-700 font-semibold px-2 py-0.5 rounded-full border border-emerald-200`}>✓</span>
           </Link>
 
           <Link
@@ -137,7 +140,9 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
               </svg>
               <span className={collapsed ? "hidden" : ""}>Verifications</span>
             </div>
-            <span className={`${collapsed ? "hidden" : ""} text-xs bg-amber-100 text-amber-700 font-semibold px-2 py-0.5 rounded-full border border-amber-200`}>14</span>
+            {pendingCount !== null && pendingCount > 0 && (
+              <span data-testid="pending-badge" className={`${collapsed ? "hidden" : ""} text-xs bg-amber-100 text-amber-700 font-semibold px-2 py-0.5 rounded-full border border-amber-200`}>{pendingCount}</span>
+            )}
           </Link>
 
           <Link
@@ -209,16 +214,16 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
       <div className="flex items-center justify-between gap-3 px-3 py-2 border-t border-slate-200/80">
         <div className="flex items-center gap-3 min-w-0">
           <div className={`flex items-center justify-center rounded-lg text-teal-200 shrink-0 ${collapsed ? "w-7 h-7" : "w-8 h-8"}`}>
-            RM
+            {admin ? initials(admin.name) : ""}
           </div>
           <div className={`${collapsed ? "hidden" : ""} text-left truncate`}>
-            <p className="text-xs font-bold text-slate-800 truncate">Super Admin</p>
-            <p className="text-[8px] text-slate-400 truncate">admin@medpulse.network</p>
+            <p className="text-xs font-bold text-slate-800 truncate" data-testid="signed-in-name">{admin?.name ?? ""}</p>
+            <p className="text-[8px] text-slate-400 truncate" data-testid="signed-in-email">{admin?.email ?? ""}</p>
           </div>
         </div>
-        <button className="w-full flex items-center justify-center gap-2 py-1.5 px-3 border border-rose-200 hover:border-rose-300 bg-rose-50/50 hover:bg-rose-50 text-rose-600 rounded-xl text-xs font-semibold transition">
+        <button type="button" onClick={onSignOut} className="w-full flex items-center justify-center gap-2 py-1.5 px-3 border border-rose-200 hover:border-rose-300 bg-rose-50/50 hover:bg-rose-50 text-rose-600 rounded-xl text-xs font-semibold transition">
           <svg className="w-4 h-4 text-rose-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" />
+            <path d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" />
           </svg>
           <span className={collapsed ? "hidden" : ""}>Sign Out</span>
         </button>
