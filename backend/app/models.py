@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, Text
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint, true
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db import Base, new_id, utcnow
@@ -40,11 +40,30 @@ class Admin(Base):
     totp_last_step: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     totp_enrolled_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     active: Mapped[bool] = mapped_column(Boolean, default=True)
+    #: Failed sign-in steps against this account from any address (app.auth backoff).
     failed_attempts: Mapped[int] = mapped_column(Integer, default=0)
     last_failed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
-    locked_until: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    #: Until then, the password step never says whether a password is right
+    #: (it always moves on to the code step), so guessing it is pointless.
+    backoff_until: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     last_login_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class LoginThrottle(Base):
+    """Failed sign-in steps against one account from one address; enough of
+    them lock that pair (only that address, only that account) for a while."""
+
+    __tablename__ = "login_throttles"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_id)
+    admin_id: Mapped[str] = mapped_column(ForeignKey("admins.id", ondelete="CASCADE"))
+    ip: Mapped[str] = mapped_column(String(64))
+    failures: Mapped[int] = mapped_column(Integer, default=0)
+    last_failed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    locked_until: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    __table_args__ = (UniqueConstraint("admin_id", "ip", name="uq_login_throttles_admin_ip"),)
 
 
 class SetupToken(Base):
@@ -70,6 +89,9 @@ class AdminSession(Base):
     admin_id: Mapped[str] = mapped_column(ForeignKey("admins.id", ondelete="CASCADE"), index=True)
     token_hash: Mapped[str] = mapped_column(String(64), unique=True)
     stage: Mapped[str] = mapped_column(String(16))
+    #: False for a stand-in session opened during backoff for a wrong
+    #: password: it looks the same, and no code ever completes it.
+    password_ok: Mapped[bool] = mapped_column(Boolean, default=True, server_default=true())
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     #: The absolute end (12 hours after sign-in; minutes for a half-finished one).

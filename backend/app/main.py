@@ -1,12 +1,13 @@
 """The admin service API (run with ``uvicorn app.main:app``).
 
-Only the admin web app calls it (its server side, on the compose network);
-browsers never do, so there is no CORS. Sessions travel in the
+Only the admin web app calls it (its server side, on the compose network,
+with X-BFF-Secret); browsers never do, so there is no CORS. Sessions travel in the
 Authorization header from the web app, which keeps them in an httpOnly cookie.
 """
 
 from __future__ import annotations
 
+import hmac
 import logging
 
 from fastapi import FastAPI, Request
@@ -25,6 +26,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or get_settings()
     # Fail at start, not at the first sign-in, when the secret is missing in production.
     settings.session_secret()
+    bff_secret = settings.bff_secret().encode()
     app = FastAPI(
         title="Endod Admin Service",
         version="0.1.0",
@@ -32,6 +34,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         redoc_url=None,
         openapi_url=None if settings.is_production else "/openapi.json",
     )
+
+    @app.middleware("http")
+    async def only_the_bff(request: Request, call_next):
+        """Everything but /health needs the BFF's shared secret: other peers on
+        the networks (endod-bus) are refused, and only the BFF names the client."""
+        if request.url.path != "/health":
+            given = request.headers.get("x-bff-secret", "").encode()
+            if not hmac.compare_digest(given, bff_secret):
+                return JSONResponse(status_code=403, content={"error": "Forbidden.", "error_code": "BFF_REQUIRED"},
+                                    headers={"Cache-Control": "no-store"})
+        return await call_next(request)
 
     @app.exception_handler(ApiError)
     async def api_error(request: Request, exc: ApiError):

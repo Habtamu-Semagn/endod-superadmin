@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { STUB, cli, createAdmin, createAdminWithLink, enrolOnPage, passwordStep, uniqueEmail } from "./helpers";
+import { STUB, createAdmin, createAdminWithLink, enrolOnPage, passwordStep, signedInAdmin, uniqueEmail } from "./helpers";
 import { PLATFORM_KEY } from "./env";
 
 test("pages redirect to the sign-in when signed out", async ({ page }) => {
@@ -78,34 +78,69 @@ test("setup link, then enrolment, then sign-in with a TOTP code", async ({ page,
   await expect(page).toHaveURL(/\/super-admin$/);
 });
 
-test("an admin created with a password must enrol before anything else", async ({ page }) => {
+test("an admin created with a password can only enrol through the setup link", async ({ page }) => {
   const admin = createAdmin("forced");
+  // Whoever knows the password cannot sign in and enrol their own authenticator.
   await passwordStep(page, admin.email, admin.password);
+  await expect(page.getByTestId("form-error")).toHaveText("Incorrect email or password.");
+  await expect(page).toHaveURL(/\/login$/);
+
+  // The link asks for that password (it does not set one), then enrolment.
+  await page.goto(admin.link);
+  await page.getByLabel("Your password").fill("not the password");
+  await page.getByRole("button", { name: "Continue" }).click();
+  await expect(page.getByTestId("form-error")).toHaveText("That password is not correct.");
+  await page.getByLabel("Your password").fill(admin.password);
+  await page.getByRole("button", { name: "Continue" }).click();
   await expect(page).toHaveURL(/\/enroll$/);
   // Nothing else is reachable with the half-finished sign-in.
   expect((await page.request.get("/api/dashboard")).status()).toBe(403);
-  await page.goto("/super-admin/verifications");
-  await expect(page).toHaveURL(/\/enroll$/);
   await enrolOnPage(page);
 });
 
-test("lockout after repeated failures, with the same message as a wrong email", async ({ page }) => {
-  const admin = createAdmin("lock");
-  await passwordStep(page, uniqueEmail("nobody"), admin.password);
-  await expect(page.getByTestId("form-error")).toHaveText("Incorrect email or password.");
-  await page.getByLabel("Email").fill(admin.email);
-  for (let i = 0; i < 5; i += 1) {
-    await page.getByLabel("Password").fill(`wrong password ${i}`);
-    await page.getByRole("button", { name: "Sign in" }).click();
-    await expect(page.getByTestId("form-error")).toHaveText("Incorrect email or password.");
-    await expect(page.getByRole("button", { name: "Sign in" })).toBeEnabled();
+test("failures lock one address out of one account, never the admin from elsewhere", async ({ page, browser }) => {
+  const admin = await signedInAdmin(page, "lock");
+  await page.getByRole("button", { name: "Sign Out" }).click();
+
+  // Someone else, at another address (as nginx tells the BFF), guessing.
+  const attacker = await browser.newContext({ extraHTTPHeaders: { "X-Endod-Client-IP": "203.0.113.7" } });
+  const other = await attacker.newPage();
+  await passwordStep(other, uniqueEmail("nobody"), admin.password);
+  await expect(other.getByTestId("form-error")).toHaveText("Incorrect email or password.");
+  await other.getByLabel("Email").fill(admin.email);
+  for (let i = 0; i < 3; i += 1) {
+    await other.getByLabel("Password").fill(`wrong password ${i}`);
+    await other.getByRole("button", { name: "Sign in" }).click();
+    await expect(other.getByTestId("form-error")).toHaveText("Incorrect email or password.");
+    await expect(other.getByRole("button", { name: "Sign in" })).toBeEnabled();
   }
-  // Locked: now even the right password gets the same answer.
-  await page.getByLabel("Password").fill(admin.password);
-  await page.getByRole("button", { name: "Sign in" }).click();
-  await expect(page.getByTestId("form-error")).toHaveText("Incorrect email or password.");
-  await expect(page).toHaveURL(/\/login$/);
-  expect(cli(["list"])).toMatch(new RegExp(`${admin.email.replace(/[.]/g, "\\.")}\\s+locked`));
+  // Backoff: a wrong password now looks like a right one, and no code completes it.
+  await other.getByLabel("Password").fill("wrong password 3");
+  await other.getByRole("button", { name: "Sign in" }).click();
+  await expect(other.getByRole("heading", { name: "Two-step verification" })).toBeVisible();
+  await other.getByLabel("Authentication code").fill("000000");
+  await other.getByRole("button", { name: "Verify" }).click();
+  await expect(other.getByTestId("form-error")).toContainText("not valid");
+  await other.getByLabel("Authentication code").fill("111111");
+  await other.getByRole("button", { name: "Verify" }).click();
+  await expect(other.getByTestId("form-error")).toHaveText("Too many failed attempts. Sign in again later.");
+  // That address is locked out of this account, even with the right password.
+  await other.getByLabel("Email").fill(admin.email);
+  await other.getByLabel("Password").fill(admin.password);
+  await other.getByRole("button", { name: "Sign in" }).click();
+  await expect(other.getByTestId("form-error")).toHaveText("Incorrect email or password.");
+  await attacker.close();
+
+  // The admin, from their own address, signs in with password and code.
+  await passwordStep(page, admin.email, admin.password);
+  await page.getByLabel("Authentication code").fill(await admin.auth.next());
+  await page.getByRole("button", { name: "Verify" }).click();
+  await expect(page).toHaveURL(/\/super-admin$/);
+  await page.goto("/super-admin/audit-logs");
+  await page.getByLabel("Action").selectOption("account_locked");
+  await expect(page.getByTestId("audit-event")).toHaveCount(1);
+  await expect(page.getByTestId("audit-event")).toContainText(admin.email);
+  await expect(page.getByTestId("audit-event")).toContainText("203.0.113.7");
 });
 
 test("cross-site requests and the platform key never get through", async ({ page }) => {

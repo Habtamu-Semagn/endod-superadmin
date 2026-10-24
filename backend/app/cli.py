@@ -4,8 +4,10 @@
 
 prints a one-time setup link (valid 24 hours) to set a password and enrol an
 authenticator. With ``--password-stdin`` the password is read from standard
-input instead (never from the command line), and the admin enrols an
-authenticator at first sign-in:
+input instead (never from the command line); a setup link is still printed,
+and the admin enrols through it (the link asks for that password). Until an
+admin has enrolled, signing in with the password alone is refused, so nobody
+else who knows or guesses it can enrol their own authenticator:
 
     printf '%s' "$PASSWORD" | python -m app.cli create-admin --email ... --name ... --password-stdin
 
@@ -50,8 +52,9 @@ def read_password(stream: TextIO) -> str:
     return line[:-1] if line.endswith("\n") else line
 
 
-def create_admin(email: str, name: str, password: Optional[str] = None) -> Optional[str]:
-    """Create an admin. Returns the setup link, or None when a password was given."""
+def create_admin(email: str, name: str, password: Optional[str] = None) -> str:
+    """Create an admin. Returns the one-time setup link (it sets the password,
+    or, when one was given, asks for it) through which the admin enrols."""
     email = _email(email)
     name = " ".join(name.split())
     if not 2 <= len(name) <= 120:
@@ -69,7 +72,7 @@ def create_admin(email: str, name: str, password: Optional[str] = None) -> Optio
         session.flush()
         audit.record(session, audit.ADMIN_CREATED, AuditResult.SUCCESS, admin_id=admin.id, admin_email=email,
                      detail={**CLI_DETAIL, "with_password": password is not None})
-        return None if password is not None else auth.issue_setup_link(session, admin)
+        return auth.issue_setup_link(session, admin)
 
 
 def reset_2fa(email: str) -> str:
@@ -81,7 +84,7 @@ def reset_2fa(email: str) -> str:
         admin.totp_secret = admin.totp_pending_secret = None
         admin.totp_last_step = admin.totp_enrolled_at = None
         admin.password_hash = None
-        admin.failed_attempts, admin.last_failed_at, admin.locked_until = 0, None, None
+        admin.failed_attempts, admin.last_failed_at, admin.backoff_until = 0, None, None
         session.execute(delete(RecoveryCode).where(RecoveryCode.admin_id == admin.id))
         auth.revoke_all(session, admin.id, now)
         audit.record(session, audit.TWO_FACTOR_RESET, AuditResult.SUCCESS, admin_id=admin.id,
@@ -107,8 +110,8 @@ def list_admins(out: TextIO) -> None:
             print("No admins.", file=out)
         for a in admins:
             state = "active" if a.active else "disabled"
-            if a.locked_until and ensure_aware(a.locked_until) > now:
-                state = "locked"
+            if a.backoff_until and ensure_aware(a.backoff_until) > now:
+                state = "backoff"
             two_factor = "2fa" if a.totp_secret else "no-2fa"
             last = ensure_aware(a.last_login_at).strftime("%Y-%m-%d %H:%M UTC") if a.last_login_at else "never"
             print(f"{a.email:40} {state:9} {two_factor:7} last sign-in {last:21} {a.name}", file=out)
@@ -137,12 +140,13 @@ def main(argv: list[str] | None = None, stdin: TextIO | None = None, stdout: Tex
             raise SystemExit("No password on standard input.")
         link = create_admin(args.email, args.name, password)
         email = _email(args.email)
-        if link is None:
-            print(f"Admin {email} created. They sign in with the password given and must enrol "
-                  f"an authenticator app first.", file=stdout)
+        if password is not None:
+            print(f"Admin {email} created with the password given. They must open this one-time setup "
+                  f"link (valid 24 hours), enter that password and enrol an authenticator app; "
+                  f"until then, signing in is refused:", file=stdout)
         else:
             print(f"Admin {email} created. One-time setup link (valid 24 hours):", file=stdout)
-            print(link, file=stdout)
+        print(link, file=stdout)
         return 0
     if args.command == "reset-2fa":
         link = reset_2fa(args.email)

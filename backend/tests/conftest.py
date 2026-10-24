@@ -11,6 +11,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 PASSWORD = "Correct-Horse-42"
 PLATFORM_KEY = "test-platform-key"
+BFF_SECRET = "test-bff-secret-0123456789abcdefghijklmnopqrst"
+CLIENT_IP = "198.51.100.10"
+
+
+def from_ip(ip):
+    """Headers of a request the BFF passes on for a visitor at ``ip``."""
+    return {"X-Endod-Client-IP": ip}
 
 
 class Clock:
@@ -40,6 +47,7 @@ def db(tmp_path, monkeypatch):
     monkeypatch.setenv("HOSPITAL_API_URL", "http://hospital.test")
     monkeypatch.setenv("HOSPITAL_PLATFORM_KEY", PLATFORM_KEY)
     monkeypatch.setenv("SITE_ORIGIN", "https://admin.example")
+    monkeypatch.setenv("BFF_SHARED_SECRET", BFF_SECRET)
     dbmod.reset_engine()
     dbmod.Base.metadata.drop_all(dbmod.get_engine())
     dbmod.create_all()
@@ -80,9 +88,10 @@ def stub(monkeypatch):
 
 @pytest.fixture
 def client(db, stub):
+    """The API as the BFF calls it: with the shared secret and the visitor's address."""
     from app.main import create_app
 
-    return TestClient(create_app())
+    return TestClient(create_app(), headers={"X-BFF-Secret": BFF_SECRET, "X-Endod-Client-IP": CLIENT_IP})
 
 
 # --- helpers -----------------------------------------------------------------------------
@@ -113,18 +122,19 @@ def bearer(token):
     return {"Authorization": f"Bearer {token}"}
 
 
-def password_step(client, email="ops@endod.example", password=PASSWORD):
-    resp = client.post("/auth/login", json={"email": email, "password": password})
+def password_step(client, email="ops@endod.example", password=PASSWORD, headers=None):
+    resp = client.post("/auth/login", json={"email": email, "password": password}, headers=headers)
     assert resp.status_code == 200, resp.text
     return resp.json()
 
 
-def sign_in(client, clock, secret, email="ops@endod.example", password=PASSWORD):
+def sign_in(client, clock, secret, email="ops@endod.example", password=PASSWORD, ip=CLIENT_IP):
     """Password and TOTP; returns the full session's headers. Moves the clock
     on a step so the next code is a new one."""
-    pending = password_step(client, email, password)
+    pending = password_step(client, email, password, headers=from_ip(ip))
     assert pending["stage"] == "totp"
-    resp = client.post("/auth/totp", json={"code": code(secret, clock)}, headers=bearer(pending["session_token"]))
+    resp = client.post("/auth/totp", json={"code": code(secret, clock)},
+                       headers={**bearer(pending["session_token"]), **from_ip(ip)})
     assert resp.status_code == 200, resp.text
     clock.advance()
     return bearer(resp.json()["session_token"])
@@ -134,6 +144,23 @@ def reauth(client, clock, secret, headers):
     resp = client.post("/auth/reauth", json={"code": code(secret, clock)}, headers=headers)
     assert resp.status_code == 200, resp.text
     clock.advance()
+
+
+def setup_token(link):
+    return link.split("#", 1)[1]
+
+
+def enrol_via_link(client, clock, link, password=PASSWORD):
+    """Open the setup link with ``password`` (sets or confirms it), enrol;
+    returns (full session headers, TOTP secret, recovery codes)."""
+    resp = client.post("/auth/setup", json={"token": setup_token(link), "password": password})
+    assert resp.status_code == 200, resp.text
+    headers = bearer(resp.json()["session_token"])
+    secret = client.post("/auth/enroll/start", headers=headers).json()["secret"]
+    done = client.post("/auth/enroll/confirm", json={"code": code(secret, clock)}, headers=headers)
+    assert done.status_code == 200, done.text
+    clock.advance()
+    return bearer(done.json()["session_token"]), secret, done.json()["recovery_codes"]
 
 
 def events(action=None):

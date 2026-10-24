@@ -3,7 +3,7 @@
 import re
 
 import pytest
-from conftest import bearer, make_admin, password_step
+from conftest import BFF_SECRET, bearer, make_admin, password_step
 
 #: Reachable without a session (they check a password or a setup link themselves).
 PUBLIC = {("POST", "/auth/login"), ("POST", "/auth/setup/check"), ("POST", "/auth/setup"), ("GET", "/health")}
@@ -50,3 +50,29 @@ def test_needs_a_full_session(client, stub, method, template, path):
     resp = client.request(method, path, json={}, headers=bearer(pending["session_token"]))
     assert resp.status_code == 403 and resp.json()["error_code"] == "SESSION_INCOMPLETE", (method, path)
     assert stub.app.state.calls == []
+
+
+@pytest.mark.parametrize("method, template, path", ROUTES)
+def test_every_route_but_health_needs_the_bff_secret(db, stub, method, template, path):
+    from fastapi.testclient import TestClient
+
+    from app.main import create_app
+
+    bare = TestClient(create_app())
+    for headers in ({}, {"X-BFF-Secret": "wrong"}, {"X-BFF-Secret": BFF_SECRET[:-1]}):
+        resp = bare.request(method, path, json={}, headers=headers)
+        if template == "/health":
+            assert resp.status_code == 200
+        else:
+            assert resp.status_code == 403 and resp.json()["error_code"] == "BFF_REQUIRED", (method, path)
+    assert stub.app.state.calls == []
+
+
+def test_production_needs_a_bff_secret(monkeypatch):
+    from app.config import get_settings
+
+    monkeypatch.setenv("ADMIN_ENVIRONMENT", "production")
+    monkeypatch.setenv("SESSION_SECRET", "s" * 40)
+    monkeypatch.delenv("BFF_SHARED_SECRET", raising=False)
+    with pytest.raises(RuntimeError, match="BFF_SHARED_SECRET"):
+        get_settings().bff_secret()

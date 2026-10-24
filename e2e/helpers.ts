@@ -75,12 +75,27 @@ export function uniqueEmail(prefix: string): string {
 
 export const PASSWORD = "a long e2e passphrase";
 
-/** An admin with a password (read from stdin) who still has to enrol an authenticator. */
-export function createAdmin(prefix: string, name = "E2E Admin"): { email: string; password: string; name: string } {
+/**
+ * An admin with a password (read from stdin) who still has to enrol an
+ * authenticator, which only the printed setup link allows.
+ */
+export function createAdmin(
+  prefix: string,
+  name = "E2E Admin"
+): { email: string; password: string; name: string; link: string } {
   const email = uniqueEmail(prefix);
   const out = cli(["create-admin", "--email", email, "--name", name, "--password-stdin"], `${PASSWORD}\n`);
   expect(out).not.toContain(PASSWORD);
-  return { email, password: PASSWORD, name };
+  const link = out.trim().split(/\r?\n/).pop() ?? "";
+  expect(link).toMatch(/\/setup#[A-Za-z0-9_-]{40,}$/);
+  return { email, password: PASSWORD, name, link };
+}
+
+/** Through the setup link of an admin created with a password: enter it, then enrol. */
+export async function confirmPasswordOnLink(page: Page, link: string, password: string) {
+  await page.goto(link);
+  await page.getByLabel("Your password").fill(password);
+  await page.getByRole("button", { name: "Continue" }).click();
 }
 
 /** An admin created without a password: returns the one-time setup link. */
@@ -121,7 +136,7 @@ export async function enrolOnPage(page: Page): Promise<{ auth: Authenticator; re
 /** A new admin, signed in and enrolled through the pages. */
 export async function signedInAdmin(page: Page, prefix: string) {
   const admin = createAdmin(prefix);
-  await passwordStep(page, admin.email, admin.password);
+  await confirmPasswordOnLink(page, admin.link, admin.password);
   const { auth } = await enrolOnPage(page);
   await expect(page.getByTestId("signed-in-email")).toHaveText(admin.email);
   return { ...admin, auth };

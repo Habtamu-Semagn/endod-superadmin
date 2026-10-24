@@ -3,7 +3,7 @@ import {
   callBackend,
   clearSessionCookie,
   errorResponse,
-  forwardedHeaders,
+  backendHeaders,
   isRecord,
   rejectCrossSite,
   sessionToken,
@@ -47,7 +47,9 @@ async function handle(request: NextRequest, ctx: RouteContext<"/api/[...path]">)
   const token = sessionToken(request);
   if (!token && !rule.signedOut) return errorResponse(401, "Authentication required.", "AUTH_REQUIRED");
 
-  const headers = forwardedHeaders(request, rule.signedOut ? undefined : token);
+  const upstream = backendHeaders(request, rule.signedOut ? undefined : token);
+  if (upstream.error) return upstream.error;
+  const headers = upstream.headers;
   let body: string | undefined;
   if (request.method === "POST") {
     body = (await request.text()) || "{}";
@@ -56,7 +58,8 @@ async function handle(request: NextRequest, ctx: RouteContext<"/api/[...path]">)
   }
   if (token && (joined === "auth/login" || joined === "auth/setup")) {
     // A new sign-in replaces whatever session this browser had: end the old one.
-    await callBackend("auth/logout", { method: "POST", headers: forwardedHeaders(request, token) });
+    const old = backendHeaders(request, token);
+    if (old.headers) await callBackend("auth/logout", { method: "POST", headers: old.headers });
   }
   const search = request.method === "GET" ? request.nextUrl.search : "";
   const result = await callBackend(`${joined}${search}`, { method: request.method, headers, body });

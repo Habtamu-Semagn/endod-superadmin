@@ -14,6 +14,8 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 #: Placeholder used only outside production when SESSION_SECRET is unset.
 DEV_SESSION_SECRET = "dev-only-session-secret-change-me-0123456789"
+#: The same for BFF_SHARED_SECRET (the web app's default in development).
+DEV_BFF_SECRET = "dev-only-bff-secret-change-me-0123456789abcd"
 
 
 class Settings(BaseSettings):
@@ -35,6 +37,10 @@ class Settings(BaseSettings):
     #: encrypts TOTP secrets at rest (via HKDF, a separate key for each use).
     #: Changing it signs everyone out and voids every enrolled authenticator.
     SESSION_SECRET: Optional[str] = None
+    #: Shared with the web app (its BFF sends it as X-BFF-Secret). Every request
+    #: but /health without it is refused, so nothing else on the networks this
+    #: API joins can call it, and only the BFF says who the client is.
+    BFF_SHARED_SECRET: Optional[str] = None
     #: The admin site's public origin; setup links point at it.
     SITE_ORIGIN: str = "http://localhost:3000"
 
@@ -48,17 +54,19 @@ class Settings(BaseSettings):
     #: Setup links from ``create-admin`` / ``reset-2fa``.
     ADMIN_SETUP_LINK_HOURS: int = 24
 
-    #: Failed sign-in steps (password, TOTP) before an account is locked, and for how long.
+    #: Failed sign-in steps (password, code) against one account from one
+    #: address before that pair is locked, and for how long.
     ADMIN_LOCKOUT_ATTEMPTS: int = 5
     ADMIN_LOCKOUT_MINUTES: int = 15
+    #: Per-account backoff: from this many recent failures (any address),
+    #: base * 2^(n - after) seconds, at most max; failures older than the window are forgotten.
+    ADMIN_BACKOFF_AFTER: int = 3
+    ADMIN_BACKOFF_BASE_SECONDS: int = 30
+    ADMIN_BACKOFF_MAX_SECONDS: int = 900
+    ADMIN_BACKOFF_WINDOW_MINUTES: int = 60
     #: Failed sign-in steps from one address within the window before it is refused (429).
     ADMIN_IP_FAILURE_LIMIT: int = 20
     ADMIN_IP_WINDOW_MINUTES: int = 15
-
-    #: Reverse proxies in front of the web app that append to X-Forwarded-For
-    #: (Cloudflare, nginx; the web app passes the header on unchanged). The
-    #: client address is the entry this many hops from the right; 0 trusts no header.
-    ADMIN_TRUSTED_PROXY_HOPS: int = 0
 
     @field_validator("ADMIN_ENVIRONMENT", mode="before")
     @classmethod
@@ -81,6 +89,14 @@ class Settings(BaseSettings):
         if self.is_production or secret:
             raise RuntimeError("SESSION_SECRET must be set to at least 32 random characters.")
         return DEV_SESSION_SECRET
+
+    def bff_secret(self) -> str:
+        secret = self.BFF_SHARED_SECRET or ""
+        if len(secret) >= 32:
+            return secret
+        if self.is_production or secret:
+            raise RuntimeError("BFF_SHARED_SECRET must be set to at least 32 random characters.")
+        return DEV_BFF_SECRET
 
 
 def get_settings() -> Settings:

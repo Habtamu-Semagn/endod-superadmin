@@ -105,6 +105,14 @@ def token_hash(token: str) -> str:
     return hmac.new(_key("token"), token.encode(), hashlib.sha256).hexdigest()
 
 
+def email_fingerprint(email: str) -> str:
+    """How an email typed for an unknown account is logged: never the input,
+    only ``unknown:`` and 8 hex characters of a keyed hash of it (normalised),
+    enough to see repeated attempts at the same name."""
+    digest = hmac.new(_key("audit-email"), email.strip().lower().encode(), hashlib.sha256).hexdigest()
+    return f"unknown:{digest[:8]}"
+
+
 # --- recovery codes ----------------------------------------------------------------------
 
 RECOVERY_CODE_COUNT = 10

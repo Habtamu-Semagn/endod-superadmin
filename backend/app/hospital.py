@@ -10,8 +10,8 @@ exactly why it refused.
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+import threading
+from typing import Any, Dict, Iterator, List, Optional
 from urllib.parse import unquote
 
 import httpx
@@ -145,12 +145,46 @@ def reject(hospital_id: str, reason: str) -> Dict[str, Any]:
     return _dict(_call("POST", f"/platform/hospitals/{_check_id(hospital_id)}/reject", json={"reason": reason}))
 
 
-@dataclass(frozen=True)
-class Document:
-    content: bytes
-    content_type: str
-    filename: str
-    sha256: Optional[str]
+#: Documents fetched at once (each holds a connection to the hospital service).
+MAX_CONCURRENT_DOCUMENTS = 4
+#: How long a request waits for a free slot before it is refused (503).
+DOCUMENT_WAIT_SECONDS = 10.0
+_document_slots = threading.BoundedSemaphore(MAX_CONCURRENT_DOCUMENTS)
+CHUNK = 64 * 1024
+
+
+class OpenDocument:
+    """A document being passed through as it arrives (never buffered whole).
+    ``chunks()`` yields it and then releases the connection and the slot;
+    ``close()`` does the same if the response never starts."""
+
+    def __init__(self, client: httpx.Client, response: httpx.Response, content_type: str, filename: str,
+                 length: Optional[int], sha256: Optional[str]):
+        self._client, self._response = client, response
+        self.content_type, self.filename, self.length, self.sha256 = content_type, filename, length, sha256
+        self._closed = False
+
+    def chunks(self) -> Iterator[bytes]:
+        sent = 0
+        try:
+            for chunk in self._response.iter_bytes(CHUNK):
+                sent += len(chunk)
+                if sent > MAX_DOCUMENT_BYTES:
+                    # Too late for an error status: cut the response short.
+                    raise RuntimeError("document larger than allowed")
+                yield chunk
+        finally:
+            self.close()
+
+    def close(self) -> None:
+        if self._closed:
+            return
+        self._closed = True
+        try:
+            self._response.close()
+            self._client.close()
+        finally:
+            _document_slots.release()
 
 
 _FILENAME_STAR = re.compile(r"filename\*\s*=\s*(?:utf-8|UTF-8)''([^;]+)")
@@ -169,34 +203,47 @@ def safe_filename(disposition: str, kind: str, extension: str) -> str:
     return cleaned
 
 
-def document(hospital_id: str, kind: str) -> Document:
-    """One of an application's four documents (PDF or image only)."""
+def open_document(hospital_id: str, kind: str) -> OpenDocument:
+    """One of an application's four documents (PDF or image only), opened for
+    streaming. At most MAX_CONCURRENT_DOCUMENTS at once; the caller must
+    consume ``chunks()`` or call ``close()``."""
     _check_id(hospital_id)
     if kind not in DOCUMENT_KINDS:
         raise ApiError(404, "Document not found.", "NOT_FOUND")
+    if not _document_slots.acquire(timeout=DOCUMENT_WAIT_SECONDS):
+        raise ApiError(503, "Too many documents are being opened right now. Try again shortly.", "BUSY")
+    client: Optional[httpx.Client] = None
+    response: Optional[httpx.Response] = None
     try:
-        with _client() as client:
-            with client.stream("GET", f"/platform/applications/{hospital_id}/documents/{kind}",
-                               headers={"Accept": "*/*"}) as response:
-                if response.status_code >= 400:
-                    response.read()
-                    raise _error(response)
-                content_type = response.headers.get("content-type", "").split(";")[0].strip().lower()
-                if content_type not in DOCUMENT_TYPES:
-                    raise ApiError(502, "The document is not a PDF or an image; it is not shown here.",
-                                   "UPSTREAM_INVALID_TYPE")
-                chunks, size = [], 0
-                for chunk in response.iter_bytes():
-                    size += len(chunk)
-                    if size > MAX_DOCUMENT_BYTES:
-                        raise ApiError(502, "The document is too large.", "UPSTREAM_TOO_LARGE")
-                    chunks.append(chunk)
-                disposition = response.headers.get("content-disposition", "")
-                sha256 = response.headers.get("x-sha256")
-    except httpx.TimeoutException as exc:
-        raise ApiError(504, "The hospital service did not answer in time.", "UPSTREAM_TIMEOUT") from exc
-    except httpx.HTTPError as exc:
-        raise ApiError(502, UNREACHABLE, "UPSTREAM_UNAVAILABLE") from exc
-    return Document(content=b"".join(chunks), content_type=content_type,
-                    filename=safe_filename(disposition, kind, DOCUMENT_TYPES[content_type]),
-                    sha256=sha256 if sha256 and re.fullmatch(r"[0-9a-f]{64}", sha256) else None)
+        client = _client()
+        request = client.build_request("GET", f"/platform/applications/{hospital_id}/documents/{kind}",
+                                       headers={"Accept": "*/*"})
+        response = client.send(request, stream=True)
+        if response.status_code >= 400:
+            response.read()
+            raise _error(response)
+        content_type = response.headers.get("content-type", "").split(";")[0].strip().lower()
+        if content_type not in DOCUMENT_TYPES:
+            raise ApiError(502, "The document is not a PDF or an image; it is not shown here.",
+                           "UPSTREAM_INVALID_TYPE")
+        length_header = response.headers.get("content-length", "")
+        length = int(length_header) if length_header.isdigit() else None
+        if length is not None and length > MAX_DOCUMENT_BYTES:
+            raise ApiError(502, "The document is too large.", "UPSTREAM_TOO_LARGE")
+        sha256 = response.headers.get("x-sha256")
+        opened = OpenDocument(client, response, content_type,
+                              safe_filename(response.headers.get("content-disposition", ""), kind,
+                                            DOCUMENT_TYPES[content_type]),
+                              length, sha256 if sha256 and re.fullmatch(r"[0-9a-f]{64}", sha256) else None)
+    except BaseException as exc:
+        if response is not None:
+            response.close()
+        if client is not None:
+            client.close()
+        _document_slots.release()
+        if isinstance(exc, httpx.TimeoutException):
+            raise ApiError(504, "The hospital service did not answer in time.", "UPSTREAM_TIMEOUT") from exc
+        if isinstance(exc, httpx.HTTPError):
+            raise ApiError(502, UNREACHABLE, "UPSTREAM_UNAVAILABLE") from exc
+        raise
+    return opened

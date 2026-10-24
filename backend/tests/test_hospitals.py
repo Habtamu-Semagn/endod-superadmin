@@ -224,3 +224,32 @@ def test_client_safe_filenames():
     assert safe_filename('inline; filename="x.html"', "owner_id", "png") == "x.png"
     assert safe_filename('inline; filename="../../\r\nSet-Cookie: a"', "owner_id", "png") == "Set-Cookie_ a.png"
     assert safe_filename("", "tin_certificate", "jpg") == "tin_certificate.jpg"
+
+
+def test_documents_are_streamed_and_at_most_four_at_once(client, stub, admin, monkeypatch):
+    from app import hospital
+
+    monkeypatch.setattr(hospital, "DOCUMENT_WAIT_SECONDS", 0.05)
+    held = [hospital.open_document(stub.TENA, kind) for kind in hospital.DOCUMENT_KINDS]
+    try:
+        busy = client.get(f"/applications/{stub.TENA}/documents/moh_license", headers=admin[0])
+        assert busy.status_code == 503 and busy.json()["error_code"] == "BUSY"
+    finally:
+        for doc in held:
+            doc.close()
+    # The slots come back, whether the stream was read or closed unread.
+    for _ in range(6):
+        resp = client.get(f"/applications/{stub.TENA}/documents/moh_license", headers=admin[0])
+        assert resp.status_code == 200 and resp.content.startswith(b"%PDF")
+
+
+def test_oversized_documents_are_refused_before_streaming(client, admin, monkeypatch):
+    from app import hospital
+
+    monkeypatch.setattr(hospital, "transport", httpx.MockTransport(lambda request: httpx.Response(
+        200, headers={"content-type": "application/pdf", "content-length": str(hospital.MAX_DOCUMENT_BYTES + 1)},
+        content=b"%PDF" + b"0" * 10)))
+    resp = client.get(f"/applications/{'a1' * 16}/documents/moh_license", headers=admin[0])
+    assert resp.status_code == 502 and resp.json()["error_code"] == "UPSTREAM_TOO_LARGE"
+    assert hospital._document_slots.acquire(blocking=False)
+    hospital._document_slots.release()

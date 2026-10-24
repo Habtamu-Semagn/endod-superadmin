@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
+import ipaddress
 import json
 from typing import Any, Dict, Optional
 
 from fastapi import Request
 
-from app.config import get_settings
 from app.models import AuditEvent, AuditResult
 
 # Actions (the Audit logs screen filters by these).
@@ -15,6 +15,7 @@ SIGN_IN = "sign_in"
 SIGN_IN_PASSWORD = "sign_in_password"
 SIGN_OUT = "sign_out"
 LOCKED_OUT = "account_locked"
+BACKOFF = "account_backoff"
 SETUP_LINK = "setup_link"
 SETUP_COMPLETED = "setup_completed"
 ENROLMENT_STARTED = "enrolment_started"
@@ -30,7 +31,7 @@ TWO_FACTOR_RESET = "admin_2fa_reset"
 ADMIN_DISABLED = "admin_disabled"
 
 ACTIONS = (
-    SIGN_IN, SIGN_IN_PASSWORD, SIGN_OUT, LOCKED_OUT, SETUP_LINK, SETUP_COMPLETED, ENROLMENT_STARTED,
+    SIGN_IN, SIGN_IN_PASSWORD, SIGN_OUT, LOCKED_OUT, BACKOFF, SETUP_LINK, SETUP_COMPLETED, ENROLMENT_STARTED,
     ENROLLED, REAUTH, APPROVE, REJECT, SUSPEND, DELETE, DOCUMENT_VIEW, ADMIN_CREATED, TWO_FACTOR_RESET,
     ADMIN_DISABLED,
 )
@@ -50,13 +51,16 @@ def record(session, action: str, result: str, *, admin_id: Optional[str] = None,
     ))
 
 
+CLIENT_IP_HEADER = "x-endod-client-ip"
+
+
 def client_address(request: Request) -> str:
-    """The caller's address. X-Forwarded-For is used only through the configured
-    number of trusted proxies (counted from the right), so a client cannot
-    choose its own address by sending the header."""
-    hops = get_settings().ADMIN_TRUSTED_PROXY_HOPS
-    if hops > 0:
-        entries = [e.strip() for e in request.headers.get("x-forwarded-for", "").split(",") if e.strip()]
-        if len(entries) >= hops:
-            return entries[-hops][:64]
-    return (request.client.host if request.client else "unknown")[:64]
+    """The visitor's address, as the web app's BFF says (X-Endod-Client-IP,
+    which our nginx sets and the BFF passes on). Only requests carrying the
+    BFF secret get this far (app.main), so nobody else can choose it.
+    X-Forwarded-For is ignored."""
+    value = request.headers.get(CLIENT_IP_HEADER, "").strip()
+    try:
+        return str(ipaddress.ip_address(value))
+    except ValueError:
+        return "unknown"

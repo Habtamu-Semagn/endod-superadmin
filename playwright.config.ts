@@ -1,6 +1,6 @@
 import path from "node:path";
 import { defineConfig } from "@playwright/test";
-import { API_PORT, API_URL, PLATFORM_KEY, STUB_PORT, STUB_URL, WEB_ORIGIN, WEB_PORT, apiEnv, backendDir, python } from "./e2e/env";
+import { API_PORT, API_URL, BFF_SECRET, PLATFORM_KEY, STUB_PORT, STUB_URL, WEB_ORIGIN, WEB_PORT, apiEnv, backendDir, python } from "./e2e/env";
 
 // Browser tests run the real stack: the admin API (uvicorn, a throwaway
 // SQLite database, migrated with Alembic), a tiny stub of the hospital
@@ -49,7 +49,7 @@ export default defineConfig({
       url: `${WEB_ORIGIN}/login`,
       reuseExistingServer: false,
       timeout: 180_000,
-      env: { ADMIN_API_URL: API_URL, SITE_ORIGIN: WEB_ORIGIN },
+      env: { ADMIN_API_URL: API_URL, SITE_ORIGIN: WEB_ORIGIN, BFF_SHARED_SECRET: BFF_SECRET },
     },
   ],
 });

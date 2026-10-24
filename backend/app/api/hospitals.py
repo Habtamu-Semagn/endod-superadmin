@@ -12,7 +12,8 @@ from typing import Any, Callable, Dict, List, Optional
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, Path, Query
-from fastapi.responses import Response
+from fastapi.responses import Response, StreamingResponse
+from starlette.background import BackgroundTask
 from pydantic import BaseModel, Field, field_validator
 
 from app import audit, hospital
@@ -95,17 +96,21 @@ def read_document(hospital_id: str = HospitalId, kind: str = Path(pattern=r"^[a-
                   principal: Principal = Depends(current_admin)) -> Response:
     detail = {"kind": kind, "download": download}
     try:
-        doc = hospital.document(hospital_id, kind)
+        doc = hospital.open_document(hospital_id, kind)
     except ApiError as exc:
         with session_scope() as session:
             audit.record(session, audit.DOCUMENT_VIEW, AuditResult.FAILURE, admin_id=principal.admin_id,
                          admin_email=principal.email, ip=principal.ip, target_type="hospital", target_id=hospital_id,
                          detail={**detail, "status": exc.status_code, "error": exc.message})
         raise
-    with session_scope() as session:
-        audit.record(session, audit.DOCUMENT_VIEW, AuditResult.SUCCESS, admin_id=principal.admin_id,
-                     admin_email=principal.email, ip=principal.ip, target_type="hospital", target_id=hospital_id,
-                     detail={**detail, "sha256": doc.sha256, "content_type": doc.content_type})
+    try:
+        with session_scope() as session:
+            audit.record(session, audit.DOCUMENT_VIEW, AuditResult.SUCCESS, admin_id=principal.admin_id,
+                         admin_email=principal.email, ip=principal.ip, target_type="hospital", target_id=hospital_id,
+                         detail={**detail, "sha256": doc.sha256, "content_type": doc.content_type})
+    except BaseException:
+        doc.close()
+        raise
     disposition = "attachment" if download else "inline"
     ascii_name = doc.filename.encode("ascii", "ignore").decode() or f"{kind}"
     headers = {
@@ -113,7 +118,12 @@ def read_document(hospital_id: str = HospitalId, kind: str = Path(pattern=r"^[a-
         "Cache-Control": "private, no-store",
         "X-Content-Type-Options": "nosniff",
     }
-    return Response(content=doc.content, media_type=doc.content_type, headers=headers)
+    if doc.length is not None:
+        headers["Content-Length"] = str(doc.length)
+    # Streamed as it arrives; the slot and connection are released when it
+    # ends, or by the background task if the client goes away first.
+    return StreamingResponse(doc.chunks(), media_type=doc.content_type, headers=headers,
+                             background=BackgroundTask(doc.close))
 
 
 class Rejection(BaseModel):

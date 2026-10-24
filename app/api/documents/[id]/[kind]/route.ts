@@ -3,7 +3,7 @@ import {
   backendUrl,
   clearSessionCookie,
   errorResponse,
-  forwardedHeaders,
+  backendHeaders,
   sessionToken,
 } from "@/lib/server/backend";
 
@@ -28,7 +28,9 @@ export async function GET(request: NextRequest, ctx: RouteContext<"/api/document
   if (!token) return errorResponse(401, "Authentication required.", "AUTH_REQUIRED");
 
   const wantsDownload = request.nextUrl.searchParams.get("download") === "1";
-  const headers = forwardedHeaders(request, token);
+  const prepared = backendHeaders(request, token);
+  if (prepared.error) return prepared.error;
+  const headers = prepared.headers;
   headers.set("Accept", "*/*");
   let upstream: Response;
   try {

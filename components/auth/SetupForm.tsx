@@ -5,7 +5,8 @@ import { useRouter } from "next/navigation";
 import { ApiError, apiFetch } from "@/lib/api";
 import AuthCard, { FormError, inputClass, labelClass, primaryButton } from "@/components/auth/AuthCard";
 
-type Invite = { email: string; name: string; expires_at: string };
+/** `set`: the link sets the password; `confirm`: the admin was created with one and enters it. */
+type Invite = { email: string; name: string; expires_at: string; mode: "set" | "confirm" };
 
 /**
  * The one-time setup link from `python -m app.cli create-admin`:
@@ -41,7 +42,7 @@ export default function SetupForm() {
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
-    if (password !== confirm) {
+    if (invite?.mode !== "confirm" && password !== confirm) {
       setError("The two passwords do not match.");
       return;
     }
@@ -67,6 +68,39 @@ export default function SetupForm() {
     return (
       <AuthCard title="Set up your account">
         <p className="text-xs text-slate-500">Checking the link…</p>
+      </AuthCard>
+    );
+  }
+  if (invite.mode === "confirm") {
+    return (
+      <AuthCard
+        title="Set up your account"
+        subtitle={
+          <>
+            Welcome, <strong data-testid="setup-name">{invite.name}</strong> ({invite.email}). Enter the password you were
+            given; next you will set up two-step verification with an authenticator app.
+          </>
+        }
+      >
+        <form onSubmit={submit} className="space-y-4">
+          <input type="email" autoComplete="username" value={invite.email} readOnly hidden />
+          <div>
+            <label htmlFor="current-password" className={labelClass}>Your password</label>
+            <input
+              id="current-password"
+              type="password"
+              autoComplete="current-password"
+              required
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              className={inputClass}
+            />
+          </div>
+          <FormError message={error} />
+          <button type="submit" disabled={busy} className={primaryButton}>
+            {busy ? "Checking…" : "Continue"}
+          </button>
+        </form>
       </AuthCard>
     );
   }

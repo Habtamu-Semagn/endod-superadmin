@@ -1,6 +1,6 @@
 """The audit log: what is written, and the Audit logs screen's query."""
 
-from conftest import PASSWORD, events, make_admin, reauth, sign_in
+from conftest import CLIENT_IP, PASSWORD, events, make_admin, reauth, sign_in
 
 
 def test_every_step_is_logged_with_admin_ip_target_and_result(client, clock, stub):
@@ -29,7 +29,7 @@ def test_every_step_is_logged_with_admin_ip_target_and_result(client, clock, stu
 
     with session_scope() as session:
         rows = list(session.scalars(select(AuditEvent)))
-    assert all(r.ip == "testclient" and r.at is not None for r in rows)
+    assert all(r.ip == CLIENT_IP and r.at is not None for r in rows)
     approve = next(r for r in rows if r.action == "hospital_approve")
     assert (approve.target_type, approve.target_id, approve.target_name) == ("hospital", stub.TENA, "Tena Clinic")
     assert approve.admin_id is not None and approve.admin_email == "ops@endod.example"
@@ -45,27 +45,27 @@ def test_passwords_and_codes_are_never_logged(client, clock):
 
 def test_audit_query_filters_and_pages(client, clock, stub):
     _, secret = make_admin()
-    for _ in range(3):
+    for _ in range(2):
         client.post("/auth/login", json={"email": "ops@endod.example", "password": "Wrong-password-1"})
     headers = sign_in(client, clock, secret)
     client.get(f"/applications/{stub.TENA}/documents/moh_license", headers=headers)
 
     page = client.get("/audit?page_size=2", headers=headers).json()
-    assert page["total"] == 6 and len(page["items"]) == 2 and page["page"] == 1
+    assert page["total"] == 5 and len(page["items"]) == 2 and page["page"] == 1
     assert page["items"][0]["action"] == "document_view"  # newest first
-    assert page["totals"] == {"all": 6, "success": 3, "failure": 3, "sign_in_failures": 3}
+    assert page["totals"] == {"all": 5, "success": 3, "failure": 2, "sign_in_failures": 2}
     assert "sign_in" in page["actions"]
 
     second = client.get("/audit?page_size=2&page=3", headers=headers).json()
-    assert [i["action"] for i in second["items"]] == ["sign_in", "sign_in"]
+    assert [i["action"] for i in second["items"]] == ["sign_in"]
 
     failures = client.get("/audit?result=failure", headers=headers).json()
-    assert failures["total"] == 3 and {i["result"] for i in failures["items"]} == {"failure"}
+    assert failures["total"] == 2 and {i["result"] for i in failures["items"]} == {"failure"}
     views = client.get("/audit?action=document_view", headers=headers).json()
     assert views["total"] == 1 and views["items"][0]["detail"]["kind"] == "moh_license"
     assert client.get(f"/audit?q={stub.TENA[:8]}", headers=headers).json()["total"] == 1
-    assert client.get("/audit?q=OPS@endod", headers=headers).json()["total"] == 6
-    assert client.get("/audit?q=%25", headers=headers).json()["total"] == 6
+    assert client.get("/audit?q=OPS@endod", headers=headers).json()["total"] == 5
+    assert client.get("/audit?q=%25", headers=headers).json()["total"] == 5
     assert client.get("/audit?since=2999-01-01T00:00:00Z", headers=headers).json()["total"] == 0
     assert client.get("/audit?action=nope", headers=headers).status_code == 400
     assert client.get("/audit?page_size=1000", headers=headers).status_code == 422

@@ -1,4 +1,5 @@
 import "server-only";
+import { isIP } from "node:net";
 import { NextResponse, type NextRequest } from "next/server";
 import { secureCookies, sessionCookieName } from "@/lib/session-cookie";
 
@@ -88,16 +89,51 @@ export function rejectCrossSite(request: NextRequest): NextResponse | null {
   return null;
 }
 
-/** Headers passed on to the admin API: the client's address chain, user agent and session. */
-export function forwardedHeaders(request: NextRequest, token?: string): Headers {
-  const headers = new Headers({ Accept: "application/json" });
+/** Development only: the admin API's default too (backend/app/config.py). */
+const DEV_BFF_SECRET = "dev-only-bff-secret-change-me-0123456789abcd";
+
+/** Production is the public https site; there nothing may fall back to a default. */
+function isProduction(): boolean {
+  return (process.env.SITE_ORIGIN ?? "").startsWith("https://");
+}
+
+function bffSecret(): string | null {
+  const secret = process.env.BFF_SHARED_SECRET ?? "";
+  if (secret.length >= 32) return secret;
+  return isProduction() || secret ? null : DEV_BFF_SECRET;
+}
+
+/**
+ * The visitor's address: only X-Endod-Client-IP, which our nginx always sets
+ * (Cloudflare's CF-Connecting-IP when the connection comes from Cloudflare,
+ * else the TCP peer) and overwrites if a client sent one. X-Forwarded-For is
+ * ignored. Without a valid one the site is not set up right: in production
+ * that is an error, in development the address is the local machine.
+ */
+function clientIp(request: NextRequest): string | null {
+  const value = (request.headers.get("x-endod-client-ip") ?? "").trim();
+  if (value && isIP(value)) return value;
+  return isProduction() ? null : "127.0.0.1";
+}
+
+export type Upstream = { headers: Headers; error?: undefined } | { headers?: undefined; error: NextResponse };
+
+/**
+ * Headers for a call to the admin API: the shared secret (the API refuses
+ * anything without it), the visitor's address, the user agent and the session.
+ * An error response (503) when this site is not configured for that.
+ */
+export function backendHeaders(request: NextRequest, token?: string): Upstream {
+  const secret = bffSecret();
+  const ip = clientIp(request);
+  if (!secret || !ip) {
+    return { error: errorResponse(503, "This site is not configured correctly. Contact Endod.", "NOT_CONFIGURED") };
+  }
+  const headers = new Headers({ Accept: "application/json", "X-BFF-Secret": secret, "X-Endod-Client-IP": ip });
   const userAgent = request.headers.get("user-agent");
   if (userAgent) headers.set("User-Agent", userAgent.slice(0, 300));
-  // The API trusts this only through ADMIN_TRUSTED_PROXY_HOPS.
-  const forwardedFor = request.headers.get("x-forwarded-for");
-  if (forwardedFor) headers.set("X-Forwarded-For", forwardedFor.slice(0, 500));
   if (token) headers.set("Authorization", `Bearer ${token}`);
-  return headers;
+  return { headers };
 }
 
 export type BackendResult = { status: number; body: unknown };

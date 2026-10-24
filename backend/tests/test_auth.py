@@ -1,11 +1,22 @@
+import json
+import threading
 from datetime import timedelta
 
-from conftest import PASSWORD, bearer, code, events, make_admin, password_step, reauth, sign_in
+from conftest import (
+    CLIENT_IP, PASSWORD, bearer, code, enrol_via_link, events, from_ip, make_admin, password_step, reauth, sign_in,
+    setup_token,
+)
 from sqlalchemy import select, update
 
 from app.auth import INVALID_LOGIN
 from app.db import session_scope, utcnow
-from app.models import Admin, AdminSession, RecoveryCode
+from app.models import Admin, AdminSession, AuditEvent, LoginThrottle, RecoveryCode
+
+OTHER_IP = "203.0.113.50"
+
+
+def _login(client, password=PASSWORD, email="ops@endod.example", ip=CLIENT_IP):
+    return client.post("/auth/login", json={"email": email, "password": password}, headers=from_ip(ip))
 
 
 # --- password step ------------------------------------------------------------------------
@@ -35,18 +46,32 @@ def test_wrong_email_and_wrong_password_answer_the_same(client):
     make_admin()
     make_admin(email="off@endod.example", active=False)
     make_admin(email="nopass@endod.example", password=None, enrolled=False)
+    make_admin(email="notyet@endod.example", enrolled=False)
     answers = [
-        client.post("/auth/login", json={"email": "nobody@endod.example", "password": PASSWORD}),
-        client.post("/auth/login", json={"email": "ops@endod.example", "password": "Wrong-password-1"}),
-        client.post("/auth/login", json={"email": "off@endod.example", "password": PASSWORD}),
-        client.post("/auth/login", json={"email": "nopass@endod.example", "password": PASSWORD}),
+        _login(client, email="Nobody@Endod.example"),
+        _login(client, password="Wrong-password-1"),
+        _login(client, email="off@endod.example"),
+        _login(client, email="nopass@endod.example"),
+        # Right password, but no authenticator yet: only the setup link enrols.
+        _login(client, email="notyet@endod.example"),
     ]
     assert {(a.status_code, a.json()["error"], a.json()["error_code"]) for a in answers} == {
         (401, INVALID_LOGIN, "INVALID_LOGIN")}
     failures = events("sign_in")
-    assert len(failures) == 4 and all(result == "failure" for _, result, *_ in failures)
-    assert "unknown_email" in failures[0][4] and "wrong_password" in failures[1][4]
-    assert "account_disabled" in failures[2][4]
+    assert len(failures) == 5 and all(result == "failure" for _, result, *_ in failures)
+    reasons = [json.loads(f[4])["reason"] for f in failures]
+    assert reasons == ["unknown_email", "wrong_password", "account_disabled", "not_enrolled", "not_enrolled"]
+
+
+def test_unknown_emails_are_logged_only_as_a_keyed_hash(client):
+    _login(client, email="  Someone.Typed@This.example ")
+    _login(client, email="someone.typed@this.example")
+    logged = events("sign_in")
+    assert logged[0][2] == logged[1][2]  # the same name, recognisable
+    assert logged[0][2].startswith("unknown:") and len(logged[0][2]) == len("unknown:") + 8
+    with session_scope() as session:
+        dump = repr([(e.admin_email, e.detail, e.target_name) for e in session.scalars(select(AuditEvent))])
+    assert "someone" not in dump.lower() and "this.example" not in dump.lower()
 
 
 def test_email_is_case_insensitive(client):
@@ -54,23 +79,77 @@ def test_email_is_case_insensitive(client):
     assert password_step(client, email="  OPS@Endod.Example ")["stage"] == "totp"
 
 
-def test_lockout_after_five_failures(client, clock):
+# --- throttling -------------------------------------------------------------------------------
+
+def test_password_failures_never_sign_anyone_out(client, clock):
     _, secret = make_admin()
-    for _ in range(5):
-        resp = client.post("/auth/login", json={"email": "ops@endod.example", "password": "Wrong-password-1"})
-        assert resp.status_code == 401
-    # Now even the right password gets the same answer.
-    resp = client.post("/auth/login", json={"email": "ops@endod.example", "password": PASSWORD})
+    headers = sign_in(client, clock, secret)
+    for n in range(8):
+        assert _login(client, password=f"wrong-{n}", ip=OTHER_IP).status_code in (200, 401)
+    assert client.get("/auth/me", headers=headers).status_code == 200
+
+
+def test_five_failures_lock_that_address_for_that_account_only(client, clock):
+    _, secret = make_admin()
+    make_admin(email="two@endod.example")
+    for n in range(3):
+        assert _login(client, password=f"wrong-{n}").status_code == 401
+    # Now in backoff: wrong passwords go on to the code step, where failures count.
+    for n in range(2):
+        decoy = _login(client, password=f"wrong-again-{n}")
+        assert decoy.status_code == 200
+        resp = client.post("/auth/totp", json={"code": "000000"}, headers=bearer(decoy.json()["session_token"]))
+    assert resp.status_code == 401 and resp.json()["error_code"] == "LOCKED"
+    # The pair is locked: even the right password is refused, with the same answer.
+    resp = _login(client)
     assert resp.status_code == 401 and resp.json()["error"] == INVALID_LOGIN
-    assert [e[1] for e in events("account_locked")] == ["success"]
-    # The lock ends after 15 minutes.
+    assert "address_locked_for_account" in events("sign_in")[-1][4]
+    locks = events("account_locked")
+    assert len(locks) == 1 and json.loads(locks[0][4])["scope"] == "account_and_address"
+    # Another account from the same address is not affected.
+    assert password_step(client, email="two@endod.example")["stage"] == "totp"
+    # The admin, from another address, still signs in with password and code.
+    sign_in(client, clock, secret, ip=OTHER_IP)
+    # And the lock ends after 15 minutes.
     with session_scope() as session:
-        session.execute(update(Admin).values(locked_until=utcnow() - timedelta(seconds=1)))
+        session.execute(update(LoginThrottle).values(locked_until=utcnow() - timedelta(seconds=1)))
     assert password_step(client)["stage"] == "totp"
 
 
-def test_wrong_totp_codes_count_towards_the_lockout(client, clock):
+def test_backoff_hides_whether_a_password_is_right(client, clock):
     _, secret = make_admin()
+    for n in range(3):
+        assert _login(client, password=f"wrong-{n}").status_code == 401
+    backoffs = events("account_backoff")
+    assert [json.loads(b[4])["seconds"] for b in backoffs] == [30]
+    # In backoff, a wrong password from anywhere goes on to the code step too...
+    decoy = _login(client, password="still-wrong", ip=OTHER_IP)
+    assert decoy.status_code == 200 and decoy.json()["stage"] == "totp"
+    # ...where no code completes it, not even the right one.
+    resp = client.post("/auth/totp", json={"code": code(secret, clock)},
+                       headers={**bearer(decoy.json()["session_token"]), **from_ip(OTHER_IP)})
+    assert resp.status_code == 400 and resp.json()["error_code"] == "INVALID_CODE"
+    assert "wrong_password_during_backoff" in events("sign_in")[-1][4]
+    # The right password and a code still work, from a new address.
+    headers = sign_in(client, clock, secret, ip="192.0.2.77")
+    assert client.get("/auth/me", headers=headers).status_code == 200
+    with session_scope() as session:
+        admin = session.scalar(select(Admin))
+        assert admin.backoff_until is None and admin.failed_attempts == 0
+
+
+def test_backoff_grows_and_is_capped():
+    from app.auth import backoff_seconds
+    from app.config import Settings
+
+    settings = Settings()
+    assert [backoff_seconds(n, settings) for n in range(1, 10)] == [0, 0, 30, 60, 120, 240, 480, 900, 900]
+    assert backoff_seconds(1000, settings) == 900
+
+
+def test_wrong_totp_codes_lock_only_that_sign_in(client, clock):
+    _, secret = make_admin()
+    other = sign_in(client, clock, secret, ip=OTHER_IP)
     pending = password_step(client)
     headers = bearer(pending["session_token"])
     for _ in range(4):
@@ -78,33 +157,39 @@ def test_wrong_totp_codes_count_towards_the_lockout(client, clock):
         assert resp.status_code == 400 and resp.json()["error_code"] == "INVALID_CODE"
     resp = client.post("/auth/totp", json={"code": "000000"}, headers=headers)
     assert resp.status_code == 401 and resp.json()["error_code"] == "LOCKED"
-    # The pending session is gone, and the password no longer opens one.
+    # That half-finished sign-in is gone; the admin's other session is not.
     assert client.post("/auth/totp", json={"code": code(secret, clock)}, headers=headers).status_code == 401
-    assert client.post("/auth/login", json={"email": "ops@endod.example", "password": PASSWORD}).status_code == 401
+    assert client.get("/auth/me", headers=other).status_code == 200
 
 
 def test_address_rate_limit(client, monkeypatch):
     monkeypatch.setenv("ADMIN_IP_FAILURE_LIMIT", "3")
     make_admin()
     for n in range(3):
-        resp = client.post("/auth/login", json={"email": f"x{n}@endod.example", "password": "whatever-1"})
-        assert resp.status_code == 401
-    resp = client.post("/auth/login", json={"email": "ops@endod.example", "password": PASSWORD})
+        assert _login(client, email=f"x{n}@endod.example", password="whatever-1").status_code == 401
+    resp = _login(client)
     assert resp.status_code == 429 and resp.json()["error_code"] == "RATE_LIMITED"
     assert "address_rate_limited" in events("sign_in")[-1][4]
+    # Another address is fine.
+    assert _login(client, ip=OTHER_IP).status_code == 200
 
 
-def test_forwarded_for_is_trusted_only_through_configured_proxies(client, monkeypatch):
+def test_the_client_address_comes_only_from_the_bff_header(client, monkeypatch):
     monkeypatch.setenv("ADMIN_IP_FAILURE_LIMIT", "2")
     for n in range(2):
         client.post("/auth/login", json={"email": f"x{n}@endod.example", "password": "whatever-1"},
                     headers={"X-Forwarded-For": f"203.0.113.{n}"})
-    # Without trusted hops the header is ignored: both failures came from one address.
+    # X-Forwarded-For is ignored: both failures came from the BFF's client address.
     assert client.post("/auth/login", json={"email": "x@endod.example", "password": "whatever-1"},
                        headers={"X-Forwarded-For": "198.51.100.7"}).status_code == 429
-    monkeypatch.setenv("ADMIN_TRUSTED_PROXY_HOPS", "1")
-    assert client.post("/auth/login", json={"email": "x@endod.example", "password": "whatever-1"},
-                       headers={"X-Forwarded-For": "198.51.100.7"}).status_code == 401
+    with session_scope() as session:
+        assert {e.ip for e in session.scalars(select(AuditEvent))} == {CLIENT_IP}
+    # Not an address: recorded as unknown, never as the text sent.
+    client.post("/auth/login", json={"email": "y@endod.example", "password": "whatever-1"},
+                headers={"X-Endod-Client-IP": "<script>"})
+    assert events("sign_in")[-1][2].startswith("unknown:")
+    with session_scope() as session:
+        assert "unknown" in {e.ip for e in session.scalars(select(AuditEvent))}
 
 
 # --- TOTP replay ---------------------------------------------------------------------------
@@ -133,25 +218,15 @@ def test_codes_outside_the_window_are_refused(client, clock):
                            headers=bearer(pending["session_token"])).status_code == 400
 
 
-# --- recovery codes -----------------------------------------------------------------------
+# --- enrolment and recovery codes ------------------------------------------------------------
 
-def _enrol(client, clock, email="new@endod.example"):
-    make_admin(email=email, enrolled=False)
-    pending = password_step(client, email)
-    assert pending["stage"] == "enroll"
-    headers = bearer(pending["session_token"])
-    start = client.post("/auth/enroll/start", headers=headers).json()
-    resp = client.post("/auth/enroll/confirm", json={"code": code(start["secret"], clock)}, headers=headers)
-    assert resp.status_code == 200, resp.text
-    clock.advance()
-    return start, resp.json()
+def test_enrolment_through_the_setup_link(client, clock):
+    from app import cli
 
-
-def test_enrolment(client, clock):
-    make_admin(email="new@endod.example", enrolled=False)
-    pending = password_step(client, "new@endod.example")
-    assert pending["stage"] == "enroll"
-    headers = bearer(pending["session_token"])
+    link = cli.create_admin("new@endod.example", "New Admin")
+    resp = client.post("/auth/setup", json={"token": setup_token(link), "password": PASSWORD})
+    assert resp.status_code == 200 and resp.json()["stage"] == "enroll"
+    headers = bearer(resp.json()["session_token"])
     # Nothing else is reachable before enrolling.
     assert client.get("/dashboard", headers=headers).status_code == 403
     assert client.post("/auth/totp", json={"code": "123456"}, headers=headers).status_code == 409
@@ -179,14 +254,15 @@ def test_enrolment(client, clock):
     assert len(stored) == 10 and not set(body["recovery_codes"]) & set(stored)
     assert [e[:2] for e in events("totp_enrolled")] == [("totp_enrolled", "failure"), ("totp_enrolled", "success")]
     assert [e[1] for e in events("enrolment_started")] == ["success"]
-    # The enrolment code was used: it cannot sign in.
-    pending = password_step(client, "new@endod.example")
-    assert pending["stage"] == "totp"
+    # Enrolled: the password now opens the code step.
+    assert password_step(client, "new@endod.example")["stage"] == "totp"
 
 
 def test_recovery_code_signs_in_once(client, clock):
-    _, enrolled = _enrol(client, clock)
-    recovery = enrolled["recovery_codes"][0]
+    from app import cli
+
+    _, _, recovery_codes = enrol_via_link(client, clock, cli.create_admin("new@endod.example", "New"))
+    recovery = recovery_codes[0]
     pending = password_step(client, "new@endod.example")
     resp = client.post("/auth/totp", json={"recovery_code": recovery.upper()},
                        headers=bearer(pending["session_token"]))
@@ -221,9 +297,6 @@ def test_activity_keeps_the_session_alive(client, clock):
     with session_scope() as session:
         session.execute(update(AdminSession).values(last_seen_at=utcnow() - timedelta(minutes=29)))
     assert client.get("/auth/me", headers=headers).status_code == 200
-    with session_scope() as session:
-        seen = session.scalar(select(AdminSession.last_seen_at).where(AdminSession.revoked_at.is_(None)))
-    assert seen is not None
 
 
 def test_absolute_limit(client, clock):
@@ -310,29 +383,28 @@ def test_reauth_belongs_to_one_session(client, clock, stub):
     assert client.post(f"/organisations/{stub.YEKATIT}/suspend", headers=second).status_code == 403
 
 
-def test_failed_reauth_codes_lock_and_end_every_session(client, clock):
+def test_failed_reauth_codes_end_only_that_session(client, clock):
     _, secret = make_admin()
+    other = sign_in(client, clock, secret, ip=OTHER_IP)
     headers = sign_in(client, clock, secret)
     for _ in range(4):
         assert client.post("/auth/reauth", json={"code": "000000"}, headers=headers).status_code == 400
     assert client.post("/auth/reauth", json={"code": "000000"}, headers=headers).status_code == 401
     assert client.get("/auth/me", headers=headers).status_code == 401
+    assert client.get("/auth/me", headers=other).status_code == 200
 
 
 # --- setup links --------------------------------------------------------------------------------
-
-def _link_token(link):
-    return link.split("#", 1)[1]
-
 
 def test_setup_link(client, clock):
     from app import cli
 
     link = cli.create_admin("fresh@endod.example", "Fresh Admin")
     assert link.startswith("https://admin.example/setup#")
-    token = _link_token(link)
+    token = setup_token(link)
     check = client.post("/auth/setup/check", json={"token": token})
     assert check.status_code == 200 and check.json()["email"] == "fresh@endod.example"
+    assert check.json()["mode"] == "set"
 
     weak = client.post("/auth/setup", json={"token": token, "password": "password1"})
     assert weak.status_code == 400 and weak.json()["error_code"] == "WEAK_PASSWORD"
@@ -341,7 +413,6 @@ def test_setup_link(client, clock):
     # One use only.
     assert client.post("/auth/setup/check", json={"token": token}).status_code == 400
     assert client.post("/auth/setup", json={"token": token, "password": "another passphrase"}).status_code == 400
-    # Then enrolment, as at any first sign-in.
     headers = bearer(resp.json()["session_token"])
     secret = client.post("/auth/enroll/start", headers=headers).json()["secret"]
     done = client.post("/auth/enroll/confirm", json={"code": code(secret, clock)}, headers=headers)
@@ -349,11 +420,67 @@ def test_setup_link(client, clock):
     assert [e[1] for e in events("setup_completed")] == ["success"]
 
 
+def test_setup_link_for_an_admin_with_a_password_asks_for_it(client, clock):
+    from app import cli
+
+    link = cli.create_admin("pw@endod.example", "Pw Admin", password=PASSWORD)
+    token = setup_token(link)
+    assert client.post("/auth/setup/check", json={"token": token}).json()["mode"] == "confirm"
+    wrong = client.post("/auth/setup", json={"token": token, "password": "not the password"})
+    assert wrong.status_code == 400 and wrong.json()["error_code"] == "WRONG_PASSWORD"
+    # A wrong password does not use the link up; the right one does.
+    assert client.post("/auth/setup/check", json={"token": token}).status_code == 200
+    headers, secret, _ = enrol_via_link(client, clock, link)
+    with session_scope() as session:
+        assert session.scalar(select(Admin.password_hash)).startswith("$argon2id$")
+    assert sign_in(client, clock, secret, email="pw@endod.example")
+
+
+def test_setup_link_password_guesses_are_throttled(client):
+    from app import cli
+
+    token = setup_token(cli.create_admin("pw@endod.example", "Pw Admin", password=PASSWORD))
+    for n in range(5):
+        assert client.post("/auth/setup", json={"token": token, "password": f"guess-{n}"}).status_code == 400
+    locked = client.post("/auth/setup", json={"token": token, "password": PASSWORD})
+    assert locked.status_code == 401 and locked.json()["error_code"] == "LOCKED"
+    assert client.post("/auth/setup", json={"token": token, "password": PASSWORD},
+                       headers=from_ip(OTHER_IP)).status_code == 200
+
+
+def test_a_setup_link_is_claimed_once_under_concurrency(client):
+    """Two uses of one link at the same moment: exactly one session."""
+    from app import auth, cli
+
+    token = setup_token(cli.create_admin("race@endod.example", "Race"))
+    barrier = threading.Barrier(4)
+    results = []
+
+    def use(n):
+        barrier.wait()
+        try:
+            auth.setup_complete(token, f"a long passphrase {n}", f"192.0.2.{n + 1}", None)
+            results.append("ok")
+        except Exception as exc:  # the loser: invalid link, or the database refusing the second writer
+            results.append(type(exc).__name__)
+
+    threads = [threading.Thread(target=use, args=(n,)) for n in range(4)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=60)
+    assert results.count("ok") == 1, results
+    with session_scope() as session:
+        sessions = list(session.scalars(select(AdminSession)))
+    assert len(sessions) == 1
+    assert len(events("setup_completed")) == 1
+
+
 def test_expired_setup_link(client):
     from app import cli
     from app.models import SetupToken
 
-    token = _link_token(cli.create_admin("fresh@endod.example", "Fresh Admin"))
+    token = setup_token(cli.create_admin("fresh@endod.example", "Fresh Admin"))
     with session_scope() as session:
         session.execute(update(SetupToken).values(expires_at=utcnow() - timedelta(seconds=1)))
     resp = client.post("/auth/setup/check", json={"token": token})

@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import {
   callBackend,
   clearSessionCookie,
-  forwardedHeaders,
+  backendHeaders,
   rejectCrossSite,
   sessionToken,
 } from "@/lib/server/backend";
@@ -13,7 +13,8 @@ export async function POST(request: NextRequest) {
   if (refused) return refused;
   const token = sessionToken(request);
   if (token) {
-    await callBackend("auth/logout", { method: "POST", headers: forwardedHeaders(request, token) });
+    const upstream = backendHeaders(request, token);
+    if (upstream.headers) await callBackend("auth/logout", { method: "POST", headers: upstream.headers });
   }
   const response = NextResponse.json({ ok: true });
   response.headers.set("Cache-Control", "no-store");
