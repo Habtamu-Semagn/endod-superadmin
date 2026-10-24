@@ -51,6 +51,22 @@ jobs:
           printf '%s\n' 'a long ci passphrase' | python -m app.cli create-admin --email ci@endod.example --name "CI Admin" --password-stdin
           python -m app.cli create-admin --email link@endod.example --name "Link Admin" | grep -q '/setup#'
           python -m app.cli list
+      - name: Database roles (owner migrates; the app role cannot change the schema or the audit log)
+        env:
+          PGHOST: localhost
+          PGPASSWORD: ci-only
+          POSTGRES_USER: admin
+          POSTGRES_DB: admin_roles
+          ADMIN_OWNER_PASSWORD: owner-ci
+          ADMIN_APP_PASSWORD: app-ci
+        run: |
+          psql -U admin -d admin -v ON_ERROR_STOP=1 -c "CREATE DATABASE admin_roles"
+          sh ../deploy/postgres-init/10-roles.sh
+          ADMIN_DATABASE_URL=postgresql+psycopg://admin_owner:owner-ci@localhost:5432/admin_roles alembic upgrade head
+          ADMIN_ROLES_APP_URL=postgresql+psycopg://admin_app:app-ci@localhost:5432/admin_roles python -m pytest -q tests/test_db_roles.py
+          # Tables made by a later migration reach the app role too (default privileges).
+          PGPASSWORD=owner-ci psql -U admin_owner -d admin_roles -v ON_ERROR_STOP=1 -c "CREATE TABLE later_table (id int)"
+          PGPASSWORD=app-ci psql -U admin_app -d admin_roles -v ON_ERROR_STOP=1 -c "INSERT INTO later_table VALUES (1)"
 
   web:
     name: Web app (lint, types, build, browser tests)
@@ -104,5 +120,5 @@ jobs:
         working-directory: deploy
         run: |
           cp .env.example .env
-          sed -i 's/^HOSPITAL_PLATFORM_KEY=$/HOSPITAL_PLATFORM_KEY=ci/; s/^SESSION_SECRET=$/SESSION_SECRET=ci-ci-ci-ci-ci-ci-ci-ci-ci-ci-ci-ci-ci/' .env
+          sed -i 's/^HOSPITAL_PLATFORM_KEY=$/HOSPITAL_PLATFORM_KEY=ci/; s/^SESSION_SECRET=$/SESSION_SECRET=ci-ci-ci-ci-ci-ci-ci-ci-ci-ci-ci-ci-ci/; s/^BFF_SHARED_SECRET=$/BFF_SHARED_SECRET=ci-bff-ci-bff-ci-bff-ci-bff-ci-bff-ci/' .env
           docker compose --env-file .env config -q

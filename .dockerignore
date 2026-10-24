@@ -6,6 +6,7 @@ node_modules
 backend
 deploy
 e2e
+playwright.config.ts
 playwright-report
 test-results
 *.tsbuildinfo

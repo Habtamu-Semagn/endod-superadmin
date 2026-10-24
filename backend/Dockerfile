@@ -14,5 +14,7 @@ USER endodadmin
 EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
   CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=4)"
-# Migrations run on start, then the API replaces the shell as PID 1 (gets SIGTERM).
-CMD ["sh", "-c", "alembic upgrade head && exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --no-server-header"]
+# Migrations run before the API starts, as the database owner, from the one-shot
+# `migrate` service (deploy/docker-compose.yml: `alembic upgrade head`); the API
+# itself connects as a role that cannot change the schema.
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--no-server-header"]
