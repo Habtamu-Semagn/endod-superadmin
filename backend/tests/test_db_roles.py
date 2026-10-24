@@ -26,9 +26,11 @@ def app_conn():
 
 
 def _refused(connection, sql, params=None):
-    with pytest.raises(ProgrammingError, match="permission denied"):
+    """Refused for lack of privilege ("permission denied" or "must be owner")."""
+    with pytest.raises(ProgrammingError) as caught:
         with connection.begin():
             connection.execute(text(sql), params or {})
+    assert type(caught.value.orig).__name__ == "InsufficientPrivilege", caught.value
 
 
 def test_the_app_role_reads_and_writes_the_app_tables(app_conn):
