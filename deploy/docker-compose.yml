@@ -1,0 +1,77 @@
+# The Endod super admin (admin.endod-health.com): its own Postgres, the API
+# and the web app.
+#
+# It shares nothing with the hospital service but its platform API, reached on
+# the private "endod-bus" network (no internet) as endod-hospital-api. The web
+# app joins the shared nginx edge network as "endod-admin"; nginx terminates
+# TLS for admin.endod-health.com and proxies to http://endod-admin:3000.
+#
+#   cd deploy && cp .env.example .env   # then fill it in
+#   docker compose --env-file .env up -d --build
+#   docker compose exec api python -m app.cli create-admin --email you@endod-health.com --name "Your Name"
+
+name: endod-admin
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: admin
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in deploy/.env}
+    volumes:
+      - admin_pgdata:/var/lib/postgresql/data
+    networks: [default]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U admin -d admin"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build: ../backend
+    restart: unless-stopped
+    environment:
+      ADMIN_ENVIRONMENT: production
+      ADMIN_DATABASE_URL: ${ADMIN_DATABASE_URL:?set ADMIN_DATABASE_URL in deploy/.env}
+      HOSPITAL_API_URL: ${HOSPITAL_API_URL:-http://endod-hospital-api:8000}
+      HOSPITAL_PLATFORM_KEY: ${HOSPITAL_PLATFORM_KEY:?set HOSPITAL_PLATFORM_KEY (the hospital service's PLATFORM_ADMIN_KEY)}
+      SESSION_SECRET: ${SESSION_SECRET:?set SESSION_SECRET (at least 32 random characters)}
+      SITE_ORIGIN: ${SITE_ORIGIN:-https://admin.endod-health.com}
+      # Cloudflare adds the visitor and nginx adds Cloudflare; the web app
+      # passes the header on unchanged. So the visitor is two entries from the right.
+      ADMIN_TRUSTED_PROXY_HOPS: ${TRUSTED_PROXY_HOPS:-2}
+    networks:
+      default: {}
+      # Only to reach endod-hospital-api; never published.
+      bus: {}
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  web:
+    build: ..
+    restart: unless-stopped
+    environment:
+      ADMIN_API_URL: http://api:8000
+      SITE_ORIGIN: ${SITE_ORIGIN:-https://admin.endod-health.com}
+    networks:
+      default: {}
+      shared_edge:
+        aliases: [endod-admin]
+    depends_on:
+      api:
+        condition: service_healthy
+
+volumes:
+  admin_pgdata:
+
+networks:
+  default: {}
+  bus:
+    external: true
+    name: endod-bus
+  shared_edge:
+    external: true
+    name: ${SHARED_NGINX_NETWORK:-eyita_edge}

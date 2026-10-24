@@ -1,0 +1,108 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    name: Admin API tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: admin
+          POSTGRES_PASSWORD: ci-only
+          POSTGRES_DB: admin
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U admin" --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: backend/requirements*.txt
+      - run: pip install -r requirements-dev.txt
+      - name: Tests (SQLite)
+        run: python -m pytest -q
+      - name: Tests (PostgreSQL)
+        env:
+          ADMIN_TEST_DATABASE_URL: postgresql+psycopg://admin:ci-only@localhost:5432/admin
+        run: python -m pytest -q
+      - name: Migrations apply on PostgreSQL and match the models
+        env:
+          ADMIN_DATABASE_URL: postgresql+psycopg://admin:ci-only@localhost:5432/admin
+        run: |
+          python -c "from app import models; from app.db import Base, get_engine; Base.metadata.drop_all(get_engine())"
+          alembic upgrade head
+          alembic check
+          alembic downgrade base
+          alembic upgrade head
+          printf '%s\n' 'a long ci passphrase' | python -m app.cli create-admin --email ci@endod.example --name "CI Admin" --password-stdin
+          python -m app.cli create-admin --email link@endod.example --name "Link Admin" | grep -q '/setup#'
+          python -m app.cli list
+
+  web:
+    name: Web app (lint, types, build, browser tests)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      # The browser tests run against the real admin API and a stub of the hospital service.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: backend/requirements*.txt
+      - name: Install the admin API
+        run: pip install -r backend/requirements.txt
+      - name: Lint
+        run: npx eslint .
+      - name: Build
+        run: npx next build
+      # After the build: it generates the route types the type check needs.
+      - name: Type check
+        run: npx tsc --noEmit
+      # playwright.config.ts drives the `chrome` channel: the runner's installed
+      # Google Chrome, so no browser is downloaded.
+      - name: Browser tests
+        env:
+          E2E_PYTHON: python
+        run: npx playwright test
+      - name: Upload the Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            playwright-report
+            test-results
+          retention-days: 7
+
+  images:
+    name: Docker images
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t endod-admin-api backend
+      - run: docker build -t endod-admin-web .
+      - name: Compose file is valid
+        working-directory: deploy
+        run: |
+          cp .env.example .env
+          sed -i 's/^HOSPITAL_PLATFORM_KEY=$/HOSPITAL_PLATFORM_KEY=ci/; s/^SESSION_SECRET=$/SESSION_SECRET=ci-ci-ci-ci-ci-ci-ci-ci-ci-ci-ci-ci-ci/' .env
+          docker compose --env-file .env config -q
