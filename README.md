@@ -10,7 +10,7 @@ only through the hospital service's platform API (`/platform/...`, with
 `X-Platform-Key`); it never touches the hospital database.
 
 ```
-browser ── https ──> nginx (sets X-Endod-Client-IP) ──> web (Next.js, this repo's root)
+browser ── https ──> nginx (sets X-Endod-Client-IP, X-Endod-Edge-Key) ──> web (Next.js, this repo's root)
                                 │  /api/*  BFF: httpOnly session cookie, path allowlist, Origin checks
                                 ▼  X-BFF-Secret, X-Endod-Client-IP
                                api (FastAPI, backend/) ──> postgres (own volume; connects as the app role)
@@ -129,13 +129,15 @@ PostgreSQL, and builds both images.
    passwords and the two URLs (`ADMIN_MIGRATE_DATABASE_URL` as `admin_owner`,
    `ADMIN_DATABASE_URL` as `admin_app`), `HOSPITAL_PLATFORM_KEY` (the hospital
    service's `HOSPITAL_PLATFORM_ADMIN_KEY`), `SESSION_SECRET` and
-   `BFF_SHARED_SECRET` (32+ random characters each),
+   `BFF_SHARED_SECRET` and `EDGE_SHARED_SECRET` (32+ random characters each),
    `SITE_ORIGIN=https://admin.endod-health.com`.
 3. `docker compose --env-file .env up -d --build`. The `migrate` service applies
    the Alembic migrations as the owner, then the API starts as the app role;
    all containers run as non-root users.
 4. nginx: `admin.endod-health.com` → `http://endod-admin:3000` (TLS at the
-   edge), with `X-Endod-Client-IP $endod_client_ip` set as for every Endod host.
+   edge), with `X-Endod-Client-IP $endod_client_ip` set as for every Endod host,
+   and `proxy_set_header X-Endod-Edge-Key "<EDGE_SHARED_SECRET>";` (the same value
+   as in `deploy/.env`; keep it out of logs).
 5. Create the first admin: `docker compose exec api python -m app.cli create-admin --email ... --name ...`
    and open the printed link.
 
@@ -150,6 +152,20 @@ the shared nginx sets for every Endod host (`$endod_client_ip` in
 app passes it on; `X-Forwarded-For` is ignored. With an https `SITE_ORIGIN`, a
 missing or invalid header gets 503 "not configured". That nginx file must also
 route `admin.endod-health.com` to `http://endod-admin:3000`.
+
+### The edge key
+
+The web container also joins the shared edge network, where other projects'
+containers could call `http://endod-admin:3000` directly and forge
+`X-Endod-Client-IP`. So with an https `SITE_ORIGIN`, `proxy.ts` first checks
+every request (pages, `/api/*`, assets) for `X-Endod-Edge-Key` equal to
+`EDGE_SHARED_SECRET` (constant-time) and answers 403 without it. The only
+exception is the container's healthcheck: `GET /login` from 127.0.0.1 or ::1
+(the Dockerfile's `HEALTHCHECK`; the TCP peer address is checked, not a
+header). While `EDGE_SHARED_SECRET` is unset or shorter than 32 characters,
+every request gets 503 "not configured" and a warning is logged. The key is
+never passed on to the API, echoed or logged. Without an https `SITE_ORIGIN`
+(development, tests, CI) there is no check.
 
 ### Database roles
 

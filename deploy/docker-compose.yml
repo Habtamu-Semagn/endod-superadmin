@@ -84,6 +84,9 @@ services:
       ADMIN_API_URL: http://api:8000
       SITE_ORIGIN: ${SITE_ORIGIN:-https://admin.endod-health.com}
       BFF_SHARED_SECRET: ${BFF_SHARED_SECRET:?set BFF_SHARED_SECRET (at least 32 random characters)}
+      # nginx sends it as X-Endod-Edge-Key; anything else on the shared edge
+      # network calling endod-admin:3000 directly gets 403.
+      EDGE_SHARED_SECRET: ${EDGE_SHARED_SECRET:?set EDGE_SHARED_SECRET (at least 32 random characters, the same as in the nginx config)}
     networks:
       default: {}
       shared_edge:
