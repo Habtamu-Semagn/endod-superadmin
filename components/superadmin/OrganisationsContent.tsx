@@ -7,6 +7,8 @@ import { ApiError, apiFetch } from "@/lib/api";
 import { HOSPITAL_STATUS, initials, titleCase } from "@/lib/format";
 import type { Hospital } from "@/lib/types";
 import { ErrorBanner, StatusBadge } from "@/components/superadmin/ComingSoon";
+import CompaniesContent from "@/components/superadmin/CompaniesContent";
+import KindSwitch, { kindOf } from "@/components/superadmin/KindSwitch";
 
 const tabs = [
   { id: "all", label: "All" },
@@ -17,8 +19,15 @@ const tabs = [
 
 export default function OrganisationsContent() {
   const searchParams = useSearchParams();
+  if (kindOf(searchParams.get("type")) === "companies") {
+    return <CompaniesContent initialSearch={searchParams.get("q") ?? ""} />;
+  }
+  return <HospitalOrganisations initialSearch={searchParams.get("q") ?? ""} />;
+}
+
+function HospitalOrganisations({ initialSearch }: { initialSearch: string }) {
   const [activeTab, setActiveTab] = useState<string>("all");
-  const [search, setSearch] = useState<string>(searchParams.get("q") ?? "");
+  const [search, setSearch] = useState<string>(initialSearch);
   const [rows, setRows] = useState<Hospital[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -46,6 +55,7 @@ export default function OrganisationsContent() {
             <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Organisations Directory</h1>
             <p className="text-xs text-slate-500 mt-1">Hospitals and clinics registered with the Endod hospital service.</p>
           </div>
+          <KindSwitch basePath="/super-admin/organisations" active="hospitals" />
         </div>
       </section>
 

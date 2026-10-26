@@ -2,7 +2,8 @@
 
 Started by playwright.config.ts with backend/ as the working directory and
 ADMIN_DATABASE_URL pointing at a throwaway SQLite file: applies the Alembic
-migrations (as the container does on start), then serves the API.
+migrations (as the container does on start; not with E2E_SKIP_MIGRATIONS,
+for a second API on the same database), then serves the API.
 
     python ../e2e/api_server.py <port>
 """
@@ -22,7 +23,8 @@ def main() -> None:
     port = int(sys.argv[1]) if len(sys.argv) > 1 else 8130
     if not os.environ.get("ADMIN_DATABASE_URL", "").startswith("sqlite:///"):
         raise SystemExit("The browser tests need a throwaway SQLite ADMIN_DATABASE_URL.")
-    alembic(argv=["upgrade", "head"])
+    if not os.environ.get("E2E_SKIP_MIGRATIONS"):
+        alembic(argv=["upgrade", "head"])
     uvicorn.run("app.main:app", host="127.0.0.1", port=port, log_level="warning")
 
 

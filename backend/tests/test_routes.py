@@ -20,7 +20,7 @@ def _routes():
     found = []
     for template, operations in create_app().openapi()["paths"].items():
         for method in operations:
-            path = re.sub(r"\{hospital_id\}", SAMPLE_ID, template)
+            path = re.sub(r"\{(hospital_id|company_id)\}", SAMPLE_ID, template)
             path = re.sub(r"\{kind\}", "moh_license", path)
             found.append((method.upper(), template, path))
     return found
@@ -34,26 +34,26 @@ def test_the_route_list_is_complete():
 
 
 @pytest.mark.parametrize("method, template, path", [r for r in ROUTES if (r[0], r[1]) not in PUBLIC])
-def test_needs_a_session(client, stub, method, template, path):
+def test_needs_a_session(client, stub, org_stub, method, template, path):
     resp = client.request(method, path, json={})
     assert resp.status_code == 401, (method, path, resp.text)
     resp = client.request(method, path, json={}, headers={"Authorization": "Bearer not-a-session"})
     assert resp.status_code == 401
-    assert stub.app.state.calls == []
+    assert stub.app.state.calls == [] and org_stub.app.state.calls == []
 
 
 @pytest.mark.parametrize("method, template, path",
                          [r for r in ROUTES if (r[0], r[1]) not in PUBLIC | SIGN_IN_STEPS])
-def test_needs_a_full_session(client, stub, method, template, path):
+def test_needs_a_full_session(client, stub, org_stub, method, template, path):
     make_admin()
     pending = password_step(client)
     resp = client.request(method, path, json={}, headers=bearer(pending["session_token"]))
     assert resp.status_code == 403 and resp.json()["error_code"] == "SESSION_INCOMPLETE", (method, path)
-    assert stub.app.state.calls == []
+    assert stub.app.state.calls == [] and org_stub.app.state.calls == []
 
 
 @pytest.mark.parametrize("method, template, path", ROUTES)
-def test_every_route_but_health_needs_the_bff_secret(db, stub, method, template, path):
+def test_every_route_but_health_needs_the_bff_secret(db, stub, org_stub, method, template, path):
     from fastapi.testclient import TestClient
 
     from app.main import create_app
@@ -65,7 +65,7 @@ def test_every_route_but_health_needs_the_bff_secret(db, stub, method, template,
             assert resp.status_code == 200
         else:
             assert resp.status_code == 403 and resp.json()["error_code"] == "BFF_REQUIRED", (method, path)
-    assert stub.app.state.calls == []
+    assert stub.app.state.calls == [] and org_stub.app.state.calls == []
 
 
 def test_production_needs_a_bff_secret(monkeypatch):

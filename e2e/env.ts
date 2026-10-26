@@ -6,11 +6,18 @@ import path from "node:path";
 
 export const API_PORT = 8130;
 export const STUB_PORT = 8131;
+/** A second admin API on the same database, without TenaCare's key (the "not connected" state). */
+export const UNCONNECTED_API_PORT = 8132;
+/** The TenaCare platform stub. */
+export const ORG_STUB_PORT = 8133;
 export const WEB_PORT = 3230;
 export const API_URL = `http://127.0.0.1:${API_PORT}`;
 export const STUB_URL = `http://127.0.0.1:${STUB_PORT}`;
+export const UNCONNECTED_API_URL = `http://127.0.0.1:${UNCONNECTED_API_PORT}`;
+export const ORG_STUB_URL = `http://127.0.0.1:${ORG_STUB_PORT}`;
 export const WEB_ORIGIN = `http://localhost:${WEB_PORT}`;
 export const PLATFORM_KEY = "e2e-platform-key";
+export const ORG_PLATFORM_KEY = "e2e-org-platform-key";
 export const BFF_SECRET = "e2e-bff-secret-0123456789abcdefghijklmnop";
 
 // The backend's Python: E2E_PYTHON (CI), else the repo's virtualenv.
@@ -35,9 +42,16 @@ export const apiEnv: Record<string, string> = {
   SESSION_SECRET: "e2e-session-secret-0123456789abcdefghijklmnop",
   HOSPITAL_API_URL: STUB_URL,
   HOSPITAL_PLATFORM_KEY: PLATFORM_KEY,
+  ORGANISATION_API_URL: ORG_STUB_URL,
+  ORGANISATION_PLATFORM_KEY: ORG_PLATFORM_KEY,
   SITE_ORIGIN: WEB_ORIGIN,
   BFF_SHARED_SECRET: BFF_SECRET,
   // The browser tests all come from 127.0.0.1; the per-address limit is tested in pytest.
   ADMIN_IP_FAILURE_LIMIT: "100",
   PYTHONUNBUFFERED: "1",
 };
+
+/** The same API without ORGANISATION_PLATFORM_KEY; it leaves the migrations to the first one. */
+export const unconnectedApiEnv: Record<string, string> = Object.fromEntries(
+  Object.entries({ ...apiEnv, E2E_SKIP_MIGRATIONS: "1" }).filter(([key]) => key !== "ORGANISATION_PLATFORM_KEY")
+);

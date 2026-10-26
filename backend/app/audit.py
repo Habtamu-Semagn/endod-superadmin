@@ -1,4 +1,4 @@
-"""The audit log: every sign-in step, enrolment and action on a hospital."""
+"""The audit log: every sign-in step, enrolment and action on a hospital or a company."""
 
 from __future__ import annotations
 
@@ -29,11 +29,17 @@ DOCUMENT_VIEW = "document_view"
 ADMIN_CREATED = "admin_created"
 TWO_FACTOR_RESET = "admin_2fa_reset"
 ADMIN_DISABLED = "admin_disabled"
+# Companies (TenaCare's platform API).
+COMPANY_APPROVE = "company_approve"
+COMPANY_REJECT = "company_reject"
+COMPANY_SUSPEND = "company_suspend"
+COMPANY_REACTIVATE = "company_reactivate"
+COMPANY_DOCUMENT_VIEW = "company_document_view"
 
 ACTIONS = (
     SIGN_IN, SIGN_IN_PASSWORD, SIGN_OUT, LOCKED_OUT, BACKOFF, SETUP_LINK, SETUP_COMPLETED, ENROLMENT_STARTED,
     ENROLLED, REAUTH, APPROVE, REJECT, SUSPEND, DELETE, DOCUMENT_VIEW, ADMIN_CREATED, TWO_FACTOR_RESET,
-    ADMIN_DISABLED,
+    ADMIN_DISABLED, COMPANY_APPROVE, COMPANY_REJECT, COMPANY_SUSPEND, COMPANY_REACTIVATE, COMPANY_DOCUMENT_VIEW,
 )
 
 

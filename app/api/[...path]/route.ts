@@ -15,7 +15,7 @@ import {
  * paths and methods below are reachable. Answers that open a session carry
  * `session_token`: it goes into the httpOnly cookie and is removed from the
  * body, so page scripts never see a token. Documents have their own binary
- * route (app/api/documents).
+ * routes (app/api/documents, app/api/company-documents).
  */
 type Rule = { pattern: RegExp; methods: string[]; signedOut?: boolean };
 
@@ -32,6 +32,12 @@ const RULES: Rule[] = [
   { pattern: /^organisations$/, methods: ["GET"] },
   { pattern: new RegExp(`^organisations/${ID}$`), methods: ["GET", "DELETE"] },
   { pattern: new RegExp(`^organisations/${ID}/(suspend|approve)$`), methods: ["POST"] },
+  // Companies (TenaCare, through the admin API).
+  { pattern: /^company-applications$/, methods: ["GET"] },
+  { pattern: new RegExp(`^company-applications/${ID}$`), methods: ["GET"] },
+  { pattern: new RegExp(`^company-applications/${ID}/(approve|reject)$`), methods: ["POST"] },
+  { pattern: /^companies$/, methods: ["GET"] },
+  { pattern: new RegExp(`^companies/${ID}/(suspend|reactivate)$`), methods: ["POST"] },
   { pattern: /^audit$/, methods: ["GET"] },
   { pattern: /^admins$/, methods: ["GET"] },
 ];

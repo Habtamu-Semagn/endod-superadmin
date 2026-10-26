@@ -2,10 +2,13 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { ApiError, apiFetch } from "@/lib/api";
 import { APPLICATION_STATUS, formatDate, formatDateTime, titleCase } from "@/lib/format";
 import type { ApplicationSummary } from "@/lib/types";
 import { ErrorBanner, StatusBadge } from "@/components/superadmin/ComingSoon";
+import CompanyVerificationsContent from "@/components/superadmin/CompanyVerificationsContent";
+import KindSwitch, { kindOf } from "@/components/superadmin/KindSwitch";
 
 const FILTERS = [
   { id: "all", label: "All" },
@@ -17,6 +20,11 @@ const FILTERS = [
 ];
 
 export default function VerificationsContent() {
+  const kind = kindOf(useSearchParams().get("type"));
+  return kind === "companies" ? <CompanyVerificationsContent /> : <HospitalVerifications />;
+}
+
+function HospitalVerifications() {
   const [rows, setRows] = useState<ApplicationSummary[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState<string>("");
@@ -54,6 +62,7 @@ export default function VerificationsContent() {
               Hospitals and clinics applying to join Endod. Times are Addis Ababa time (EAT).
             </p>
           </div>
+          <KindSwitch basePath="/super-admin/verifications" active="hospitals" />
         </div>
       </section>
 
