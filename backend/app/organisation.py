@@ -27,7 +27,7 @@ transport: Optional[httpx.BaseTransport] = None
 #: TenaCare's ids: 32 lowercase hex characters.
 COMPANY_ID = r"^[0-9a-f]{32}$"
 DOCUMENT_KINDS = ("trade_license", "tin_certificate", "authorization_letter")
-APPLICATION_STATUSES = ("draft", "submitted", "approved", "rejected")
+APPLICATION_STATUSES = ("draft", "submitted", "approved", "rejected", "closed")
 
 NOT_CONNECTED = "Companies are not connected yet: TenaCare's platform key (ORGANISATION_PLATFORM_KEY) is not set here."
 UNREACHABLE = "TenaCare is not reachable. Try again shortly."
@@ -130,14 +130,18 @@ def get_application(company_id: str) -> Dict[str, Any]:
     return _dict(_call("GET", f"/platform/applications/{_check_id(company_id)}"))
 
 
-def approve(company_id: str, reviewer: str) -> Dict[str, Any]:
+def approve(company_id: str, reviewer: str, expected_updated_at: str) -> Dict[str, Any]:
+    """Approves only the version the reviewer saw: TenaCare answers 409 if the
+    application changed since (its ``updated_at`` no longer matches)."""
     return _dict(_call("POST", f"/platform/applications/{_check_id(company_id)}/approve",
-                       json={"reviewer": reviewer}))
+                       json={"reviewer": reviewer, "expected_updated_at": expected_updated_at}))
 
 
-def reject(company_id: str, reason: str, reviewer: str) -> Dict[str, Any]:
+def reject(company_id: str, reason: str, reviewer: str, close: bool = False) -> Dict[str, Any]:
+    """Sends the application back; with ``close`` (fake or abusive) it becomes
+    ``closed`` and can never be resubmitted."""
     return _dict(_call("POST", f"/platform/applications/{_check_id(company_id)}/reject",
-                       json={"reason": reason, "reviewer": reviewer}))
+                       json={"reason": reason, "reviewer": reviewer, "close": close}))
 
 
 # --- organisations -----------------------------------------------------------------------

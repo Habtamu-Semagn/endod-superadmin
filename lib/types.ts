@@ -133,7 +133,7 @@ export type AdminRow = {
 
 // --- companies (TenaCare's platform API, docs/company-onboarding.md) ---------------------
 
-export type CompanyApplicationStatus = "draft" | "submitted" | "approved" | "rejected";
+export type CompanyApplicationStatus = "draft" | "submitted" | "approved" | "rejected" | "closed";
 
 export type CompanyContact = { full_name: string; title: string | null; phone: string | null; email: string };
 
@@ -149,6 +149,10 @@ export type CompanyApplicationSummary = {
   submitted_at: string | null;
   updated_at: string | null;
   contact: CompanyContact | null;
+  /** Another application or organisation has this TIN (Amendment 1). */
+  duplicate_tin: boolean;
+  /** TenaCare does not verify emails yet: always false for now. */
+  email_verified: boolean;
 };
 
 export type CompanyDocument = {

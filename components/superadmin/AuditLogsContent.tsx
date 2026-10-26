@@ -28,7 +28,7 @@ const ACTION_LABELS: Record<string, string> = {
   admin_2fa_reset: "Two-factor reset",
   admin_disabled: "Admin disabled",
   company_approve: "Company approved",
-  company_reject: "Company application sent back",
+  company_reject: "Company application rejected",
   company_suspend: "Company suspended",
   company_reactivate: "Company reactivated",
   company_document_view: "Company document viewed",

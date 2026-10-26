@@ -57,6 +57,7 @@ export const APPLICATION_STATUS: Record<string, { label: string; className: stri
   rejected: { label: "Sent back", className: "bg-rose-50 text-rose-800 border border-rose-200" },
   approved: { label: "Approved", className: "bg-emerald-100 text-emerald-800 border border-emerald-200" },
   suspended: { label: "Suspended", className: "bg-rose-100 text-rose-800 border border-rose-300" },
+  closed: { label: "Closed", className: "bg-slate-200 text-slate-800 border border-slate-300" },
 };
 
 export const HOSPITAL_STATUS: Record<string, { label: string; className: string }> = {

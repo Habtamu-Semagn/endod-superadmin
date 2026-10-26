@@ -125,9 +125,16 @@ def read_document(company_id: str = CompanyId, kind: str = Path(pattern=r"^[a-z_
                              background=BackgroundTask(doc.close))
 
 
+class Approval(BaseModel):
+    #: The ``updated_at`` of the detail the reviewer is looking at (Amendment 1).
+    expected_updated_at: str = Field(min_length=1, max_length=64)
+
+
 class Rejection(BaseModel):
     #: Shown to the applicant on TenaCare.
     reason: str = Field(min_length=3, max_length=1000)
+    #: Fake or abusive: the application is closed and cannot be resubmitted.
+    close: bool = False
 
     @field_validator("reason")
     @classmethod
@@ -139,11 +146,12 @@ class Rejection(BaseModel):
 
 
 @router.post("/company-applications/{company_id}/approve")
-def approve_application(company_id: str = CompanyId,
+def approve_application(body: Approval, company_id: str = CompanyId,
                         principal: Principal = Depends(_connected_fresh)) -> Dict[str, Any]:
     name = _application_name(company_id)
     return _audited(principal, audit.COMPANY_APPROVE, company_id,
-                    lambda: organisation.approve(company_id, principal.email), name)
+                    lambda: organisation.approve(company_id, principal.email, body.expected_updated_at), name,
+                    {"expected_updated_at": body.expected_updated_at})
 
 
 @router.post("/company-applications/{company_id}/reject")
@@ -151,8 +159,8 @@ def reject_application(body: Rejection, company_id: str = CompanyId,
                        principal: Principal = Depends(_connected_fresh)) -> Dict[str, Any]:
     name = _application_name(company_id)
     return _audited(principal, audit.COMPANY_REJECT, company_id,
-                    lambda: organisation.reject(company_id, body.reason, principal.email), name,
-                    {"reason": body.reason})
+                    lambda: organisation.reject(company_id, body.reason, principal.email, body.close), name,
+                    {"reason": body.reason, "close": body.close})
 
 
 # --- companies (organisations) -----------------------------------------------------------

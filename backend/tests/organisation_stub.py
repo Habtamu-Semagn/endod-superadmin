@@ -1,7 +1,10 @@
 """A tiny stand-in for TenaCare's platform API (``/platform/...``), built to
-docs/company-onboarding.md: the same shapes, ``{"detail": "..."}`` errors as
-FastAPI gives them, approve and reject only from ``submitted`` (409
-otherwise), 404 for unknown ids, and every call needs the right X-Platform-Key.
+docs/company-onboarding.md (with Amendment 1): the same shapes,
+``{"detail": "..."}`` errors as FastAPI gives them, approve only from
+``submitted`` with a matching ``expected_updated_at`` and reject only from
+``submitted`` (409 otherwise), reject with ``close`` makes it ``closed``,
+``duplicate_tin`` and ``email_verified`` on every application, 404 for unknown
+ids, and every call needs the right X-Platform-Key.
 
 Used by the pytest suite (through httpx, see conftest.py) and, as a real
 server, by the browser tests:
@@ -19,6 +22,8 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, Response
 
 KEY = os.environ.get("STUB_ORG_PLATFORM_KEY", "test-org-platform-key")
+
+CHANGED = "The application changed since you opened it. Reload it."
 
 KINDS = ("trade_license", "tin_certificate", "authorization_letter")
 
@@ -40,32 +45,36 @@ DORMANT = "7a" * 16    # an organisation already suspended
 
 def _application(cid: str, legal: str, status: str, *, sector: str, city: str, employees: int,
                  submitted: Optional[str], documents: str = "pdf", trade: Optional[str] = None,
-                 reason: Optional[str] = None) -> Dict[str, Any]:
+                 reason: Optional[str] = None, tin: Optional[str] = None,
+                 email_verified: bool = False) -> Dict[str, Any]:
     slug = legal.split()[0].lower()
     return {
-        "id": cid, "legal_name": legal, "trade_name": trade, "tin": str(int(cid[:8], 16)).zfill(10)[-10:],
+        "id": cid, "legal_name": legal, "trade_name": trade, "tin": tin or str(int(cid[:8], 16)).zfill(10)[-10:],
         "sector": sector, "employee_count": employees, "city": city, "status": status,
         "submitted_at": submitted, "updated_at": submitted or "2026-10-18T09:00:00+00:00",
         "contact": {"full_name": f"{legal.split()[0]} Applicant", "title": "HR Manager",
                     "phone": "+251911223344", "email": f"hr@{slug}.example"},
         "business_license_number": f"BL/{slug.upper()}/2026", "address": f"Bole Road, {city}",
         "phone": "+251111234567", "email": f"info@{slug}.example", "rejection_reason": reason,
-        "reviewed_at": None, "documents_kind": documents,
+        "reviewed_at": None, "documents_kind": documents, "email_verified": email_verified,
     }
 
 
 def initial_state() -> Dict[str, Any]:
     applications = [
         _application(ABAY, "Abay Manufacturing PLC", "submitted", sector="manufacturing", city="Addis Ababa",
-                     employees=240, submitted="2026-10-20T06:30:00+00:00", trade="Abay Mfg"),
+                     employees=240, submitted="2026-10-20T06:30:00+00:00", trade="Abay Mfg",
+                     tin="0123456789"),
         _application(HABESHA, "Habesha Logistics Share Company", "submitted", sector="transport", city="Adama",
-                     employees=85, submitted="2026-10-21T08:00:00+00:00", documents="png"),
+                     employees=85, submitted="2026-10-21T08:00:00+00:00", documents="png",
+                     email_verified=True),
         _application(DRAFTCO, "Draft Trading PLC", "draft", sector="retail", city="Hawassa", employees=12,
                      submitted=None, documents="none"),
         _application(ETHIO, "Ethio Finance SC", "approved", sector="finance", city="Addis Ababa", employees=410,
                      submitted="2026-09-01T06:00:00+00:00"),
         _application(SENT_BACK, "Sent Back Services PLC", "rejected", sector="services", city="Bahir Dar",
-                     employees=30, submitted="2026-10-10T06:00:00+00:00", reason="The TIN certificate is unreadable."),
+                     employees=30, submitted="2026-10-10T06:00:00+00:00", reason="The TIN certificate is unreadable.",
+                     tin="0123456789"),
         _application(EVILCO, "Evil Docs PLC", "submitted", sector="other", city="Gondar", employees=5,
                      submitted="2026-10-22T08:00:00+00:00", documents="html"),
     ]
@@ -109,8 +118,32 @@ def reset():
     return {"ok": True}
 
 
+@app.post("/__touch/{cid}")
+def touch(cid: str):
+    """The applicant edits the application meanwhile: a new ``updated_at``."""
+    a = _find(cid)
+    if a is None:
+        return _err(404, "Application not found.")
+    a["updated_at"] = _bump(a["updated_at"])
+    return {"updated_at": a["updated_at"]}
+
+
+def _bump(stamp: str) -> str:
+    from datetime import datetime, timedelta
+
+    return (datetime.fromisoformat(stamp) + timedelta(minutes=1)).isoformat()
+
+
 SUMMARY = ("id", "legal_name", "trade_name", "tin", "sector", "employee_count", "city", "status",
-           "submitted_at", "updated_at", "contact")
+           "submitted_at", "updated_at", "contact", "email_verified")
+
+
+def _summary(a: Dict[str, Any]) -> Dict[str, Any]:
+    body = {key: a[key] for key in SUMMARY}
+    others = [o for o in app.state.data["applications"].values() if o["id"] != a["id"]]
+    orgs = [o for o in app.state.data["organisations"].values() if o["id"] != a["id"]]
+    body["duplicate_tin"] = any(o["tin"] == a["tin"] for o in others + orgs)
+    return body
 
 
 def _documents(a: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -123,7 +156,7 @@ def _documents(a: Dict[str, Any]) -> List[Dict[str, Any]]:
 
 
 def _detail(a: Dict[str, Any]) -> Dict[str, Any]:
-    body = {key: a[key] for key in SUMMARY}
+    body = _summary(a)
     body.update({key: a[key] for key in ("business_license_number", "address", "phone", "email",
                                          "rejection_reason", "reviewed_at")})
     body["documents"] = _documents(a)
@@ -137,7 +170,7 @@ def _find(cid: str) -> Optional[Dict[str, Any]]:
 @app.get("/platform/applications")
 def list_applications(status: Optional[str] = None):
     rows = sorted(app.state.data["applications"].values(), key=lambda a: a["updated_at"], reverse=True)
-    return {"items": [{key: a[key] for key in SUMMARY} for a in rows if status is None or a["status"] == status]}
+    return {"items": [_summary(a) for a in rows if status is None or a["status"] == status]}
 
 
 @app.get("/platform/applications/{cid}")
@@ -176,15 +209,21 @@ async def _reviewer(request: Request) -> Optional[str]:
 
 @app.post("/platform/applications/{cid}/approve")
 async def approve(cid: str, request: Request):
-    reviewer = await _reviewer(request)
-    if reviewer is None:
-        return _err(422, "reviewer is required")
+    try:
+        body = await request.json()
+    except ValueError:
+        body = {}
+    reviewer = body.get("reviewer") if isinstance(body, dict) else None
+    expected = body.get("expected_updated_at") if isinstance(body, dict) else None
+    if not reviewer or not isinstance(expected, str):
+        return _err(422, "reviewer and expected_updated_at are required")
     a = _find(cid)
     if a is None:
         return _err(404, "Application not found.")
-    if a["status"] != "submitted":
-        return _err(409, f"Only a submitted application can be approved (status: {a['status']}).")
+    if a["status"] != "submitted" or a["updated_at"] != expected:
+        return _err(409, CHANGED)
     a["status"] = "approved"
+    a["updated_at"] = _bump(a["updated_at"])
     a["reviewed_at"] = "2026-10-26T09:00:00+00:00"
     app.state.data["reviewers"].append(("approve", cid, reviewer))
     app.state.data["organisations"][cid] = {"id": cid, "name": a["legal_name"], "tin": a["tin"],
@@ -206,13 +245,17 @@ async def reject(cid: str, request: Request):
     a = _find(cid)
     if a is None:
         return _err(404, "Application not found.")
+    close = body.get("close", False)
+    if not isinstance(close, bool):
+        return _err(422, "close must be a boolean")
     if a["status"] != "submitted":
         return _err(409, f"Only a submitted application can be rejected (status: {a['status']}).")
-    a["status"] = "rejected"
+    a["status"] = "closed" if close else "rejected"
+    a["updated_at"] = _bump(a["updated_at"])
     a["rejection_reason"] = reason
     a["reviewed_at"] = "2026-10-26T09:00:00+00:00"
-    app.state.data["reviewers"].append(("reject", cid, reviewer))
-    return {"status": "rejected"}
+    app.state.data["reviewers"].append(("close" if close else "reject", cid, reviewer))
+    return {"status": a["status"]}
 
 
 @app.get("/platform/organisations")

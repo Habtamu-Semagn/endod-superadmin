@@ -35,6 +35,20 @@ def test_list_and_filter_applications(client, org_stub, admin):
                                                     "Evil Docs PLC"}
     assert ("GET", "/platform/applications") in org_stub.app.state.calls
     assert client.get("/company-applications?status=suspended", headers=admin[0]).status_code == 400
+    assert client.get("/company-applications?status=closed", headers=admin[0]).json() == []
+    flags = {r["legal_name"]: (r["duplicate_tin"], r["email_verified"]) for r in rows}
+    assert flags["Abay Manufacturing PLC"] == (True, False)  # same TIN as Sent Back Services PLC
+    assert flags["Habesha Logistics Share Company"] == (False, True)
+
+
+def _updated_at(client, headers, company_id):
+    return client.get(f"/company-applications/{company_id}", headers=headers).json()["updated_at"]
+
+
+def _approve(client, headers, company_id, expected=None):
+    expected = expected or _updated_at(client, headers, company_id)
+    return client.post(f"/company-applications/{company_id}/approve", json={"expected_updated_at": expected},
+                       headers=headers)
 
 
 def test_application_detail(client, org_stub, admin):
@@ -42,6 +56,7 @@ def test_application_detail(client, org_stub, admin):
     assert detail["business_license_number"] == "BL/ABAY/2026"
     assert detail["trade_name"] == "Abay Mfg"
     assert [d["kind"] for d in detail["documents"]] == ["trade_license", "tin_certificate", "authorization_letter"]
+    assert detail["duplicate_tin"] is True and detail["email_verified"] is False
 
 
 def test_unknown_application_is_404(client, org_stub, admin):
@@ -59,20 +74,36 @@ def test_ids_are_checked_before_anything_is_called(client, org_stub, admin, fres
 
 
 def test_approve_sends_the_reviewer_and_is_audited(client, org_stub, fresh):
-    resp = client.post(f"/company-applications/{org_stub.ABAY}/approve", headers=fresh)
+    resp = _approve(client, fresh, org_stub.ABAY)
     assert resp.status_code == 200 and resp.json() == {"status": "approved"}
     assert org_stub.app.state.data["reviewers"] == [("approve", org_stub.ABAY, "ops@endod.example")]
-    action, result, email, target, _ = events("company_approve")[0]
+    action, result, email, target, detail = events("company_approve")[0]
     assert (result, email, target) == ("success", "ops@endod.example", org_stub.ABAY)
+    assert json.loads(detail)["expected_updated_at"] == "2026-10-20T06:30:00+00:00"
+
+
+def test_approve_needs_the_version_the_reviewer_saw(client, org_stub, fresh):
+    assert client.post(f"/company-applications/{org_stub.ABAY}/approve", json={}, headers=fresh).status_code == 422
+    assert client.post(f"/company-applications/{org_stub.ABAY}/approve", headers=fresh).status_code == 422
+    seen = _updated_at(client, fresh, org_stub.ABAY)
+    # The applicant edits it meanwhile: TenaCare refuses, and says why.
+    org_stub.app.state.data["applications"][org_stub.ABAY]["updated_at"] = "2026-10-26T10:00:00+00:00"
+    resp = _approve(client, fresh, org_stub.ABAY, seen)
+    assert resp.status_code == 409 and resp.json()["error_code"] == "UPSTREAM_409"
+    assert resp.json()["error"] == "The application changed since you opened it. Reload it."
+    assert org_stub.app.state.data["reviewers"] == []
+    # Reloaded, it goes through.
+    assert _approve(client, fresh, org_stub.ABAY).status_code == 200
+    assert [e[1] for e in events("company_approve")] == ["failure", "success"]
+    assert json.loads(events("company_approve")[0][4])["status"] == 409
 
 
 def test_approve_twice_shows_tenacares_409(client, org_stub, fresh):
-    assert client.post(f"/company-applications/{org_stub.ABAY}/approve", headers=fresh).status_code == 200
-    resp = client.post(f"/company-applications/{org_stub.ABAY}/approve", headers=fresh)
+    assert _approve(client, fresh, org_stub.ABAY).status_code == 200
+    resp = _approve(client, fresh, org_stub.ABAY)
     assert resp.status_code == 409 and resp.json()["error_code"] == "UPSTREAM_409"
-    assert resp.json()["error"] == "Only a submitted application can be approved (status: approved)."
+    assert resp.json()["error"] == "The application changed since you opened it. Reload it."
     assert [e[1] for e in events("company_approve")] == ["success", "failure"]
-    assert json.loads(events("company_approve")[1][4])["status"] == 409
 
 
 def test_reject_needs_a_reason_and_sends_it_with_the_reviewer(client, org_stub, fresh):
@@ -86,9 +117,25 @@ def test_reject_needs_a_reason_and_sends_it_with_the_reviewer(client, org_stub, 
         "The trade license has expired."
     assert org_stub.app.state.data["reviewers"] == [("reject", org_stub.HABESHA, "ops@endod.example")]
     _, result, _, _, detail = events("company_reject")[0]
-    assert result == "success" and "expired" in detail
+    assert result == "success" and json.loads(detail) == {"reason": "The trade license has expired.", "close": False}
     again = client.post(url, json={"reason": "Again please."}, headers=fresh)
     assert again.status_code == 409 and "status: rejected" in again.json()["error"]
+
+
+def test_reject_and_close(client, org_stub, fresh):
+    resp = client.post(f"/company-applications/{org_stub.EVILCO}/reject",
+                       json={"reason": "Fake documents.", "close": True}, headers=fresh)
+    assert resp.status_code == 200 and resp.json() == {"status": "closed"}
+    assert org_stub.app.state.data["reviewers"] == [("close", org_stub.EVILCO, "ops@endod.example")]
+    closed = client.get("/company-applications?status=closed", headers=fresh).json()
+    assert [r["legal_name"] for r in closed] == ["Evil Docs PLC"]
+    _, result, _, _, detail = events("company_reject")[0]
+    assert result == "success" and json.loads(detail) == {"reason": "Fake documents.", "close": True}
+    # Closed is final.
+    again = client.post(f"/company-applications/{org_stub.EVILCO}/reject", json={"reason": "Again."}, headers=fresh)
+    assert again.status_code == 409
+    assert client.post(f"/company-applications/{org_stub.ABAY}/reject", json={"reason": "No.", "close": "maybe"},
+                       headers=fresh).status_code == 422
 
 
 def test_reject_a_draft_is_409(client, org_stub, fresh):
@@ -100,8 +147,9 @@ def test_reject_a_draft_is_409(client, org_stub, fresh):
 def test_changes_need_a_fresh_code(client, org_stub, admin):
     headers, _ = admin
     for method, path, body in (
-        ("POST", f"/company-applications/{org_stub.ABAY}/approve", None),
+        ("POST", f"/company-applications/{org_stub.ABAY}/approve", {"expected_updated_at": "x"}),
         ("POST", f"/company-applications/{org_stub.ABAY}/reject", {"reason": "Not readable."}),
+        ("POST", f"/company-applications/{org_stub.ABAY}/reject", {"reason": "Fake.", "close": True}),
         ("POST", f"/companies/{org_stub.ETHIO}/suspend", None),
         ("POST", f"/companies/{org_stub.DORMANT}/reactivate", None),
     ):
@@ -238,7 +286,8 @@ def test_without_the_key_companies_answer_503_and_hospitals_keep_working(client,
                          ("POST", f"/company-applications/{org_stub.ABAY}/reject"),
                          ("GET", "/companies"), ("POST", f"/companies/{org_stub.ETHIO}/suspend"),
                          ("POST", f"/companies/{org_stub.ETHIO}/reactivate")):
-        resp = client.request(method, path, json={"reason": "Not readable."}, headers=headers)
+        resp = client.request(method, path, json={"reason": "Not readable.", "expected_updated_at": "x"},
+                              headers=headers)
         # 503 first: no code is asked for an action that cannot happen.
         assert resp.status_code == 503, (method, path, resp.text)
         assert resp.json()["error_code"] == "COMPANIES_NOT_CONNECTED"
@@ -261,12 +310,17 @@ def test_client_sends_the_key_and_reviewer(db, monkeypatch):
     def handler(request):
         captured.update(key=request.headers.get("x-platform-key"), url=str(request.url),
                         body=json.loads(request.content))
-        return httpx.Response(200, json={"status": "approved"})
+        return httpx.Response(200, json={"status": "ok"})
 
     monkeypatch.setattr(organisation, "transport", httpx.MockTransport(handler))
-    assert organisation.approve("1a" * 16, "ops@endod.example") == {"status": "approved"}
+    stamp = "2026-10-20T06:30:00+00:00"
+    assert organisation.approve("1a" * 16, "ops@endod.example", stamp) == {"status": "ok"}
     assert captured == {"key": ORG_PLATFORM_KEY, "url": f"http://tenacare.test/platform/applications/{'1a' * 16}/approve",
-                        "body": {"reviewer": "ops@endod.example"}}
+                        "body": {"reviewer": "ops@endod.example", "expected_updated_at": stamp}}
+    organisation.reject("1a" * 16, "Fake.", "ops@endod.example", close=True)
+    assert captured["body"] == {"reason": "Fake.", "reviewer": "ops@endod.example", "close": True}
+    organisation.reject("1a" * 16, "Fix it.", "ops@endod.example")
+    assert captured["body"]["close"] is False
 
 
 def test_client_rejects_bad_ids_and_kinds(db, monkeypatch):
@@ -278,7 +332,7 @@ def test_client_rejects_bad_ids_and_kinds(db, monkeypatch):
 
     monkeypatch.setattr(organisation, "transport", httpx.MockTransport(never))
     for bad in ("../x", "A" * 32, "a" * 31, "a" * 33, "", "a" * 31 + "/"):
-        for call in (lambda: organisation.get_application(bad), lambda: organisation.approve(bad, "x"),
+        for call in (lambda: organisation.get_application(bad), lambda: organisation.approve(bad, "x", "t"),
                      lambda: organisation.reject(bad, "reason", "x"), lambda: organisation.suspend(bad, "x"),
                      lambda: organisation.reactivate(bad, "x"),
                      lambda: organisation.open_document(bad, "trade_license")):
@@ -307,7 +361,7 @@ def test_client_maps_upstream_errors(db, monkeypatch):
                 (502, "UPSTREAM_ERROR", None), (502, "UPSTREAM_INVALID", None)]
     for status, code, message in expected:
         with pytest.raises(ApiError) as caught:
-            organisation.approve("1a" * 16, "ops@endod.example")
+            organisation.approve("1a" * 16, "ops@endod.example", "t")
         assert (caught.value.status_code, caught.value.code) == (status, code)
         if message:
             assert caught.value.message == message
@@ -348,7 +402,7 @@ def test_the_key_is_never_logged_or_returned(client, org_stub, fresh, caplog, mo
                          ("GET", "/companies"), ("GET", "/dashboard"),
                          ("POST", f"/company-applications/{org_stub.DRAFTCO}/approve"),
                          ("POST", f"/companies/{'0' * 32}/suspend")):
-        resp = client.request(method, path, headers=fresh)
+        resp = client.request(method, path, json={"expected_updated_at": "x"}, headers=fresh)
         seen.append(resp.text + json.dumps(dict(resp.headers)))
     # A wrong key: refused as a 502 that names the variable, not the value.
     monkeypatch.setenv("ORGANISATION_PLATFORM_KEY", "wrong-org-key")

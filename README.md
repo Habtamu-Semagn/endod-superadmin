@@ -59,10 +59,15 @@ browser ── https ──> nginx (sets X-Endod-Client-IP, X-Endod-Edge-Key) �
   search; the detail page (company, TIN, business license, sector, employees,
   applicant) with the three documents (trade license, TIN certificate,
   authorization letter; same streaming, cap and safe headers as the hospital
-  documents); Approve and Reject with a reason (fresh TOTP; the admin's email
-  goes to TenaCare as `reviewer`). The Companies directory shows status,
-  employees and admins, with Suspend and Reactivate (fresh TOTP). TenaCare's
-  errors (its 409 when an application is not submitted) are shown as given.
+  documents); badges for "Same TIN as another application/company" and
+  "Email not verified: confirm it on the call". Approve sends the
+  `updated_at` the reviewer saw, so TenaCare refuses (409, with a Reload
+  button) an application that changed since; Reject (they can fix and
+  resubmit) or Reject and close (fake or abusive; `closed`, cannot resubmit,
+  with an extra confirmation). All need a fresh TOTP, send the admin's email
+  as `reviewer` and are audited (with `close`). The Companies directory shows
+  status, employees and admins, with Suspend and Reactivate (fresh TOTP).
+  TenaCare's errors are shown as given.
   Until `ORGANISATION_PLATFORM_KEY` is set, these routes answer 503 and the
   pages say "Companies are not connected yet"; the hospital side is unaffected.
 - **Audit logs**: every sign-in step (success or failure), enrolment,

@@ -6,7 +6,7 @@ import { ApiError, apiFetch } from "@/lib/api";
 import { APPLICATION_STATUS, formatDate, titleCase } from "@/lib/format";
 import type { CompanyApplicationSummary } from "@/lib/types";
 import { ErrorBanner, StatusBadge } from "@/components/superadmin/ComingSoon";
-import KindSwitch, { NotConnected, isNotConnected } from "@/components/superadmin/KindSwitch";
+import KindSwitch, { CompanyFlags, NotConnected, isNotConnected } from "@/components/superadmin/KindSwitch";
 
 const FILTERS = [
   { id: "all", label: "All" },
@@ -14,6 +14,7 @@ const FILTERS = [
   { id: "draft", label: "Draft" },
   { id: "rejected", label: "Sent back" },
   { id: "approved", label: "Approved" },
+  { id: "closed", label: "Closed" },
 ];
 
 /** Companies applying on TenaCare (organisation.endod-health.com). */
@@ -129,6 +130,9 @@ export default function CompanyVerificationsContent() {
                         {row.contact.phone ? ` · ${row.contact.phone}` : ""}
                       </p>
                     )}
+                  </div>
+                  <div className="mt-2">
+                    <CompanyFlags duplicateTin={row.duplicate_tin} emailVerified={row.email_verified} />
                   </div>
                 </Link>
               );

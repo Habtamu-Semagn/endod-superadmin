@@ -34,6 +34,25 @@ export default function KindSwitch({ basePath, active }: { basePath: string; act
   );
 }
 
+/** Warnings on a company application: a TIN seen elsewhere, an email nobody verified. */
+export function CompanyFlags({ duplicateTin, emailVerified }: { duplicateTin: boolean; emailVerified: boolean }) {
+  if (!duplicateTin && emailVerified) return null;
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {duplicateTin && (
+        <span data-testid="flag-duplicate-tin" className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold border bg-rose-50 text-rose-800 border-rose-200">
+          Same TIN as another application/company
+        </span>
+      )}
+      {!emailVerified && (
+        <span data-testid="flag-email-unverified" className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold border bg-amber-50 text-amber-800 border-amber-200">
+          Email not verified: confirm it on the call
+        </span>
+      )}
+    </div>
+  );
+}
+
 /** True when the admin API says TenaCare is not connected here (no platform key). */
 export function isNotConnected(error: unknown): boolean {
   return error instanceof ApiError && error.code === "COMPANIES_NOT_CONNECTED";

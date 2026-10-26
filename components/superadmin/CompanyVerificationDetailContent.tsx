@@ -9,9 +9,10 @@ import type { CompanyApplication } from "@/lib/types";
 import { Cancelled, useAdmin } from "@/components/superadmin/AdminShell";
 import Dialog from "@/components/superadmin/Dialog";
 import { ErrorBanner, Field, StatusBadge, SuccessBanner } from "@/components/superadmin/ComingSoon";
-import { NotConnected, isNotConnected } from "@/components/superadmin/KindSwitch";
+import { CompanyFlags, NotConnected, isNotConnected } from "@/components/superadmin/KindSwitch";
 
-type Action = "approve" | "reject" | null;
+/** Reject sends it back to be fixed; close is for fake or abusive ones (no resubmitting). */
+type Action = "approve" | "reject" | "close" | null;
 
 const DOCUMENT_LABELS: Record<string, string> = {
   trade_license: "Trade license",
@@ -32,12 +33,14 @@ export default function CompanyVerificationDetailContent() {
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [staleOffer, setStaleOffer] = useState(false);
+  const [closeConfirmed, setCloseConfirmed] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
 
   const validId = /^[0-9a-f]{32}$/.test(id);
-  const load = useCallback(() => {
+  const load = useCallback(async () => {
     if (!/^[0-9a-f]{32}$/.test(id)) return;
-    apiFetch<CompanyApplication>(`company-applications/${id}`)
+    await apiFetch<CompanyApplication>(`company-applications/${id}`)
       .then((value) => {
         setApp(value);
         setLoadError(null);
@@ -52,33 +55,65 @@ export default function CompanyVerificationDetailContent() {
     load();
   }, [load]);
 
+  const open = (next: Exclude<Action, null>) => {
+    setCloseConfirmed(false);
+    setAction(next);
+  };
+
   const close = () => {
     if (!busy) setAction(null);
+  };
+
+  // The error and the button go only once the current version is on screen,
+  // so an Approve after Reload always sends the new updated_at.
+  const reload = async () => {
+    await load();
+    setActionError(null);
+    setStaleOffer(false);
   };
 
   const perform = async () => {
     if (!app || !action) return;
     setBusy(true);
     setActionError(null);
+    setStaleOffer(false);
     setNotice(null);
     const current = action;
     try {
       if (current === "approve") {
-        await runSensitive(() => apiFetch(`company-applications/${app.id}/approve`, { method: "POST" }));
+        // Only the version on screen: TenaCare answers 409 if it changed since.
+        await runSensitive(() =>
+          apiFetch(`company-applications/${app.id}/approve`, {
+            method: "POST",
+            body: { expected_updated_at: app.updated_at ?? "" },
+          })
+        );
         setNotice(`${app.legal_name} is approved.`);
       } else {
+        const closing = current === "close";
         await runSensitive(() =>
-          apiFetch(`company-applications/${app.id}/reject`, { method: "POST", body: { reason: reason.trim() } })
+          apiFetch(`company-applications/${app.id}/reject`, {
+            method: "POST",
+            body: { reason: reason.trim(), close: closing },
+          })
         );
-        setNotice(`The application was sent back to ${app.legal_name} with your reason.`);
+        setNotice(
+          closing
+            ? `The application of ${app.legal_name} is closed; it cannot be resubmitted.`
+            : `The application was sent back to ${app.legal_name} with your reason.`
+        );
         setReason("");
       }
       refreshCounts();
-      load();
+      void load();
     } catch (e) {
       // TenaCare's own words (for example its 409 when the application is
       // not submitted), shown on the page.
-      if (!(e instanceof Cancelled)) setActionError(e instanceof ApiError ? e.message : "The request failed.");
+      if (!(e instanceof Cancelled)) {
+        setActionError(e instanceof ApiError ? e.message : "The request failed.");
+        // A 409: the application changed (or was decided) since this page loaded.
+        setStaleOffer(e instanceof ApiError && e.status === 409);
+      }
     } finally {
       setAction(null);
       setBusy(false);
@@ -129,6 +164,9 @@ export default function CompanyVerificationDetailContent() {
               <StatusBadge label={status.label} className={status.className} />
             </div>
             <h1 className="text-2xl font-bold text-slate-900 tracking-tight mt-2">{app.legal_name}</h1>
+            <div className="mt-2">
+              <CompanyFlags duplicateTin={app.duplicate_tin} emailVerified={app.email_verified} />
+            </div>
             <p className="text-xs text-slate-500 mt-1">
               Company on TenaCare · Submitted {formatDateTime(app.submitted_at)}
               {app.reviewed_at ? ` · Reviewed ${formatDateTime(app.reviewed_at)}` : ""}
@@ -137,17 +175,24 @@ export default function CompanyVerificationDetailContent() {
           <div className="flex flex-wrap gap-2">
             <button
               type="button"
-              onClick={() => setAction("approve")}
+              onClick={() => open("approve")}
               className="px-4 py-2 text-xs font-semibold bg-[#0d5c52] hover:bg-[#09473f] text-white rounded-xl transition-all shadow-sm"
             >
               Approve
             </button>
             <button
               type="button"
-              onClick={() => setAction("reject")}
+              onClick={() => open("reject")}
               className="px-4 py-2 text-xs font-semibold bg-white border border-rose-200 hover:bg-rose-50 text-rose-700 rounded-xl transition-all shadow-sm"
             >
-              Reject
+              Reject (they can fix and resubmit)
+            </button>
+            <button
+              type="button"
+              onClick={() => open("close")}
+              className="px-4 py-2 text-xs font-semibold bg-rose-600 hover:bg-rose-700 text-white rounded-xl transition-all shadow-sm"
+            >
+              Reject and close (fake or abusive; cannot resubmit)
             </button>
             <Link
               href={BACK}
@@ -160,6 +205,15 @@ export default function CompanyVerificationDetailContent() {
       </section>
 
       {actionError && <ErrorBanner message={actionError} testId="action-error" />}
+      {staleOffer && (
+        <button
+          type="button"
+          onClick={reload}
+          className="px-4 py-2 text-xs font-semibold bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 rounded-xl transition-all shadow-sm"
+        >
+          Reload
+        </button>
+      )}
       {notice && <SuccessBanner message={notice} />}
       {app.rejection_reason && (
         <section className="rounded-xl border border-amber-200 bg-amber-50 p-4">
@@ -265,15 +319,23 @@ export default function CompanyVerificationDetailContent() {
           onCancel={close}
         />
       )}
-      {action === "reject" && (
+      {(action === "reject" || action === "close") && (
         <Dialog
-          testId="reject-dialog"
-          title={`Send the application back to ${app.legal_name}?`}
-          description="The company sees your reason on TenaCare, fixes the application and submits it again."
-          confirmLabel="Reject"
+          testId={action === "close" ? "close-dialog" : "reject-dialog"}
+          title={
+            action === "close"
+              ? `Reject and close the application of ${app.legal_name}?`
+              : `Send the application back to ${app.legal_name}?`
+          }
+          description={
+            action === "close"
+              ? "For fake or abusive applications only. The company sees your reason and can never resubmit this application."
+              : "The company sees your reason on TenaCare, fixes the application and submits it again."
+          }
+          confirmLabel={action === "close" ? "Reject and close" : "Reject"}
           tone="danger"
           busy={busy}
-          confirmDisabled={reason.trim().length < 3}
+          confirmDisabled={reason.trim().length < 3 || (action === "close" && !closeConfirmed)}
           onConfirm={perform}
           onCancel={close}
         >
@@ -288,6 +350,17 @@ export default function CompanyVerificationDetailContent() {
             className="mt-1 w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500/20 text-slate-900"
             placeholder="For example: the trade license has expired; upload the renewed one."
           />
+          {action === "close" && (
+            <label className="mt-3 flex items-start gap-2 text-xs text-slate-700">
+              <input
+                type="checkbox"
+                checked={closeConfirmed}
+                onChange={(e) => setCloseConfirmed(e.target.checked)}
+                className="mt-0.5"
+              />
+              <span>I am sure: this application is fake or abusive and must not be resubmitted.</span>
+            </label>
+          )}
         </Dialog>
       )}
     </div>
