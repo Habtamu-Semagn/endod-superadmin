@@ -1,10 +1,28 @@
 import path from "node:path";
 import { defineConfig } from "@playwright/test";
-import { API_PORT, API_URL, BFF_SECRET, PLATFORM_KEY, STUB_PORT, STUB_URL, WEB_ORIGIN, WEB_PORT, apiEnv, backendDir, python } from "./e2e/env";
+import {
+  API_PORT,
+  API_URL,
+  BFF_SECRET,
+  ORG_PLATFORM_KEY,
+  ORG_STUB_PORT,
+  ORG_STUB_URL,
+  PLATFORM_KEY,
+  STUB_PORT,
+  STUB_URL,
+  UNCONNECTED_API_PORT,
+  UNCONNECTED_API_URL,
+  WEB_ORIGIN,
+  WEB_PORT,
+  apiEnv,
+  backendDir,
+  python,
+  unconnectedApiEnv,
+} from "./e2e/env";
 
 // Browser tests run the real stack: the admin API (uvicorn, a throwaway
-// SQLite database, migrated with Alembic), a tiny stub of the hospital
-// service's platform API, and the web app built with `next build` and served
+// SQLite database, migrated with Alembic), tiny stubs of the hospital
+// service's and TenaCare's platform APIs, and the web app built with `next build` and served
 // by `next start`. Set E2E_NEXT_DEV=1 to use `next dev` instead.
 
 export default defineConfig({
@@ -37,12 +55,29 @@ export default defineConfig({
       env: { STUB_PLATFORM_KEY: PLATFORM_KEY, PYTHONUNBUFFERED: "1" },
     },
     {
+      command: `"${python}" "${path.join(backendDir, "tests", "organisation_stub.py")}" ${ORG_STUB_PORT}`,
+      cwd: backendDir,
+      url: `${ORG_STUB_URL}/health`,
+      reuseExistingServer: false,
+      timeout: 60_000,
+      env: { STUB_ORG_PLATFORM_KEY: ORG_PLATFORM_KEY, PYTHONUNBUFFERED: "1" },
+    },
+    {
       command: `"${python}" "${path.join(__dirname, "e2e", "api_server.py")}" ${API_PORT}`,
       cwd: backendDir,
       url: `${API_URL}/health`,
       reuseExistingServer: false,
       timeout: 120_000,
       env: apiEnv,
+    },
+    {
+      // The same database without TenaCare's key: the "not connected" state (e2e/companies.spec.ts).
+      command: `"${python}" "${path.join(__dirname, "e2e", "api_server.py")}" ${UNCONNECTED_API_PORT}`,
+      cwd: backendDir,
+      url: `${UNCONNECTED_API_URL}/health`,
+      reuseExistingServer: false,
+      timeout: 120_000,
+      env: unconnectedApiEnv,
     },
     {
       command: process.env.E2E_NEXT_DEV ? `npm run dev -- -p ${WEB_PORT}` : `npm run start -- -p ${WEB_PORT}`,

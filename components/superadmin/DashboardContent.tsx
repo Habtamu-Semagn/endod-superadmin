@@ -26,7 +26,7 @@ export default function DashboardContent() {
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
             <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Super Admin Dashboard</h1>
-            <p className="text-xs text-slate-500 mt-1">Applications waiting for Endod, and the hospitals already approved.</p>
+            <p className="text-xs text-slate-500 mt-1">Applications waiting for Endod, from hospitals and companies, and the hospitals already approved.</p>
           </div>
         </div>
       </section>
@@ -35,7 +35,7 @@ export default function DashboardContent() {
       {data?.errors.map((message) => <ErrorBanner key={message} message={message} />)}
 
       {/* KPIs */}
-      <section className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+      <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
         <Link href="/super-admin/verifications" className="bg-white rounded-xl border border-slate-200 p-4 hover:border-slate-300 hover:shadow-sm transition-all">
           <div className="flex items-center justify-between text-xs text-slate-500 mb-1">
             <span className="font-medium">Pending Applications</span>
@@ -56,6 +56,20 @@ export default function DashboardContent() {
             <span className="text-2xl font-bold text-slate-900" data-testid="kpi-approved">{value(data?.approved_hospitals)}</span>
           </div>
           <p className="text-[11px] text-slate-400 mt-2">Hospitals and clinics approved by Endod</p>
+        </Link>
+        <Link href="/super-admin/verifications?type=companies" className="bg-white rounded-xl border border-slate-200 p-4 hover:border-slate-300 hover:shadow-sm transition-all">
+          <div className="flex items-center justify-between text-xs text-slate-500 mb-1">
+            <span className="font-medium">Pending Company Applications</span>
+          </div>
+          <div className="flex items-baseline gap-2">
+            <span className="text-2xl font-bold text-slate-900" data-testid="kpi-pending-companies">{value(data?.pending_company_applications)}</span>
+            {(data?.pending_company_applications ?? 0) > 0 && (
+              <span className="text-[11px] font-semibold text-amber-700 bg-amber-100 px-1.5 py-0.5 rounded-full border border-amber-200">Action Req.</span>
+            )}
+          </div>
+          <p className="text-[11px] text-slate-400 mt-2" data-testid="kpi-pending-companies-note">
+            {data && !data.companies_connected ? "Companies are not connected yet" : "Companies on TenaCare waiting for review"}
+          </p>
         </Link>
       </section>
 

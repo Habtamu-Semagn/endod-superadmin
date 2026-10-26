@@ -91,6 +91,9 @@ export type Dashboard = {
   pending_applications: number | null;
   approved_hospitals: number | null;
   awaiting_review: ApplicationSummary[];
+  /** Submitted company applications; null while TenaCare is not connected or failed. */
+  pending_company_applications: number | null;
+  companies_connected: boolean;
   errors: string[];
 };
 
@@ -126,4 +129,54 @@ export type AdminRow = {
   locked: boolean;
   last_login_at: string | null;
   created_at: string | null;
+};
+
+// --- companies (TenaCare's platform API, docs/company-onboarding.md) ---------------------
+
+export type CompanyApplicationStatus = "draft" | "submitted" | "approved" | "rejected";
+
+export type CompanyContact = { full_name: string; title: string | null; phone: string | null; email: string };
+
+export type CompanyApplicationSummary = {
+  id: string;
+  legal_name: string;
+  trade_name: string | null;
+  tin: string;
+  sector: string;
+  employee_count: number;
+  city: string | null;
+  status: CompanyApplicationStatus;
+  submitted_at: string | null;
+  updated_at: string | null;
+  contact: CompanyContact | null;
+};
+
+export type CompanyDocument = {
+  kind: string;
+  filename: string;
+  content_type: string;
+  size: number;
+  uploaded_at: string | null;
+};
+
+export type CompanyApplication = CompanyApplicationSummary & {
+  business_license_number: string | null;
+  address: string | null;
+  phone: string | null;
+  email: string | null;
+  rejection_reason: string | null;
+  reviewed_at: string | null;
+  documents: CompanyDocument[];
+};
+
+export type CompanyStatus = "active" | "suspended";
+
+export type Company = {
+  id: string;
+  name: string;
+  tin: string;
+  status: CompanyStatus;
+  created_at: string | null;
+  employees: number;
+  admins: number;
 };

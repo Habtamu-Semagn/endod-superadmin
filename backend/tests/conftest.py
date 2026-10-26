@@ -11,6 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 PASSWORD = "Correct-Horse-42"
 PLATFORM_KEY = "test-platform-key"
+ORG_PLATFORM_KEY = "test-org-platform-key"
 BFF_SECRET = "test-bff-secret-0123456789abcdefghijklmnopqrst"
 CLIENT_IP = "198.51.100.10"
 
@@ -46,6 +47,8 @@ def db(tmp_path, monkeypatch):
     monkeypatch.setenv("SESSION_SECRET", "test-session-secret-0123456789abcdefghijklmnop")
     monkeypatch.setenv("HOSPITAL_API_URL", "http://hospital.test")
     monkeypatch.setenv("HOSPITAL_PLATFORM_KEY", PLATFORM_KEY)
+    monkeypatch.setenv("ORGANISATION_API_URL", "http://tenacare.test")
+    monkeypatch.setenv("ORGANISATION_PLATFORM_KEY", ORG_PLATFORM_KEY)
     monkeypatch.setenv("SITE_ORIGIN", "https://admin.example")
     monkeypatch.setenv("BFF_SHARED_SECRET", BFF_SECRET)
     dbmod.reset_engine()
@@ -87,7 +90,27 @@ def stub(monkeypatch):
 
 
 @pytest.fixture
-def client(db, stub):
+def org_stub(monkeypatch):
+    """TenaCare's platform stub (tests/organisation_stub.py), reached through httpx."""
+    import organisation_stub
+
+    from app import organisation
+
+    organisation_stub.app.state.data = organisation_stub.initial_state()
+    organisation_stub.app.state.calls = []
+    stub_client = TestClient(organisation_stub.app)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        answer = stub_client.request(request.method, str(request.url.copy_with(scheme="http", host="testserver")),
+                                     headers=dict(request.headers), content=request.content)
+        return httpx.Response(answer.status_code, headers=answer.headers, content=answer.content)
+
+    monkeypatch.setattr(organisation, "transport", httpx.MockTransport(handler))
+    return organisation_stub
+
+
+@pytest.fixture
+def client(db, stub, org_stub):
     """The API as the BFF calls it: with the shared secret and the visitor's address."""
     from app.main import create_app
 

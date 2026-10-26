@@ -32,7 +32,7 @@ const nextConfig: NextConfig = {
       { source: "/:path*", headers: securityHeaders },
       {
         // Pages and JSON (documents set their own policy).
-        source: "/((?!api/documents/).*)",
+        source: "/((?!api/documents/|api/company-documents/).*)",
         headers: [
           {
             key: "Content-Security-Policy",

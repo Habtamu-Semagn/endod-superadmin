@@ -1,7 +1,8 @@
 """Settings, read from the environment or ``.env``.
 
 The names match deploy/.env.example: ADMIN_DATABASE_URL, HOSPITAL_API_URL,
-HOSPITAL_PLATFORM_KEY, SESSION_SECRET and SITE_ORIGIN; the rest have safe
+HOSPITAL_PLATFORM_KEY, ORGANISATION_API_URL, ORGANISATION_PLATFORM_KEY,
+SESSION_SECRET and SITE_ORIGIN; the rest have safe
 defaults and are prefixed ``ADMIN_``.
 """
 
@@ -32,6 +33,15 @@ class Settings(BaseSettings):
     HOSPITAL_PLATFORM_KEY: Optional[str] = None
     #: Seconds to wait for the hospital service.
     HOSPITAL_API_TIMEOUT: float = 15.0
+
+    #: TenaCare's platform API (company applications and organisations), on
+    #: the same bus network. docs/company-onboarding.md is the contract.
+    ORGANISATION_API_URL: str = "http://endod-organisation-api:8000"
+    #: Sent as X-Platform-Key (TenaCare's ORG_PLATFORM_KEY). Never leaves this
+    #: service. Unset: the company routes answer 503, the hospital side works.
+    ORGANISATION_PLATFORM_KEY: Optional[str] = None
+    #: Seconds to wait for TenaCare.
+    ORGANISATION_API_TIMEOUT: float = 15.0
 
     #: Keys the hashes of session tokens, setup links and recovery codes, and
     #: encrypts TOTP secrets at rest (via HKDF, a separate key for each use).
@@ -73,7 +83,7 @@ class Settings(BaseSettings):
     def _lower(cls, value):
         return value.strip().lower() if isinstance(value, str) else value
 
-    @field_validator("SITE_ORIGIN", "HOSPITAL_API_URL", mode="before")
+    @field_validator("SITE_ORIGIN", "HOSPITAL_API_URL", "ORGANISATION_API_URL", mode="before")
     @classmethod
     def _no_trailing_slash(cls, value):
         return value.strip().rstrip("/") if isinstance(value, str) else value

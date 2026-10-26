@@ -1,7 +1,7 @@
 import { createHmac } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { expect, type APIRequestContext, type Page } from "@playwright/test";
-import { STUB_URL, apiEnv, backendDir, python } from "./env";
+import { ORG_STUB_URL, STUB_URL, apiEnv, backendDir, python } from "./env";
 
 // --- TOTP (RFC 6238, as Google Authenticator computes it) ---------------------------------
 
@@ -163,4 +163,20 @@ export const STUB = {
   YEKATIT: "d4".repeat(16),
   SELAM: "e5".repeat(16),
   EVIL: "f6".repeat(16),
+};
+
+export async function resetOrgStub(request: APIRequestContext) {
+  const response = await request.post(`${ORG_STUB_URL}/__reset`);
+  expect(response.ok()).toBe(true);
+}
+
+/** The TenaCare stub's ids (backend/tests/organisation_stub.py). */
+export const ORG = {
+  ABAY: "1a".repeat(16),
+  HABESHA: "2b".repeat(16),
+  DRAFTCO: "3c".repeat(16),
+  ETHIO: "4d".repeat(16),
+  SENT_BACK: "5e".repeat(16),
+  EVILCO: "6f".repeat(16),
+  DORMANT: "7a".repeat(16),
 };

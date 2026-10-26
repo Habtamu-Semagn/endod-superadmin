@@ -64,3 +64,14 @@ export const HOSPITAL_STATUS: Record<string, { label: string; className: string 
   approved: { label: "Approved", className: "bg-emerald-50 text-emerald-700 border border-emerald-200" },
   suspended: { label: "Suspended", className: "bg-rose-50 text-rose-800 border border-rose-200" },
 };
+
+export const COMPANY_STATUS: Record<string, { label: string; className: string }> = {
+  active: { label: "Active", className: "bg-emerald-50 text-emerald-700 border border-emerald-200" },
+  suspended: { label: "Suspended", className: "bg-rose-50 text-rose-800 border border-rose-200" },
+};
+
+/** A file size as "12 KB" or "1.4 MB". */
+export function sizeLabel(bytes?: number | null): string {
+  if (!bytes) return "";
+  return bytes >= 1024 * 1024 ? `${(bytes / (1024 * 1024)).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`;
+}

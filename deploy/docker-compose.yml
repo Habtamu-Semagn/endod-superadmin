@@ -1,8 +1,9 @@
 # The Endod super admin (admin.endod-health.com): its own Postgres, the API
 # and the web app.
 #
-# It shares nothing with the hospital service but its platform API, reached on
-# the private "endod-bus" network (no internet) as endod-hospital-api. The web
+# It shares nothing with the hospital service or TenaCare but their platform
+# APIs, reached on the private "endod-bus" network (no internet) as
+# endod-hospital-api and endod-organisation-api. The web
 # app joins the shared nginx edge network as "endod-admin"; nginx terminates
 # TLS for admin.endod-health.com and proxies to http://endod-admin:3000.
 #
@@ -64,6 +65,10 @@ services:
       ADMIN_DATABASE_URL: ${ADMIN_DATABASE_URL:?set ADMIN_DATABASE_URL (the admin_app role) in deploy/.env}
       HOSPITAL_API_URL: ${HOSPITAL_API_URL:-http://endod-hospital-api:8000}
       HOSPITAL_PLATFORM_KEY: ${HOSPITAL_PLATFORM_KEY:?set HOSPITAL_PLATFORM_KEY (the hospital service's PLATFORM_ADMIN_KEY)}
+      # TenaCare's platform API (company applications), docs/company-onboarding.md.
+      # Optional: without the key the company pages say "not connected yet".
+      ORGANISATION_API_URL: ${ORGANISATION_API_URL:-http://endod-organisation-api:8000}
+      ORGANISATION_PLATFORM_KEY: ${ORGANISATION_PLATFORM_KEY:-}
       SESSION_SECRET: ${SESSION_SECRET:?set SESSION_SECRET (at least 32 random characters)}
       SITE_ORIGIN: ${SITE_ORIGIN:-https://admin.endod-health.com}
       # Only the web app knows it: anything else reaching this API (other
@@ -71,7 +76,7 @@ services:
       BFF_SHARED_SECRET: ${BFF_SHARED_SECRET:?set BFF_SHARED_SECRET (at least 32 random characters)}
     networks:
       default: {}
-      # Only to reach endod-hospital-api; never published.
+      # Only to reach endod-hospital-api and endod-organisation-api; never published.
       bus: {}
     depends_on:
       migrate:

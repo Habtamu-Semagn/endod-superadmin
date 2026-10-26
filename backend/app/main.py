@@ -15,7 +15,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException
 
-from app.api import admins, audit_log, auth, hospitals
+from app.api import admins, audit_log, auth, companies, hospitals
 from app.config import Settings, get_settings
 from app.errors import ApiError
 
@@ -77,6 +77,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     app.include_router(auth.router)
     app.include_router(hospitals.router)
+    app.include_router(companies.router)
     app.include_router(audit_log.router)
     app.include_router(admins.router)
     return app

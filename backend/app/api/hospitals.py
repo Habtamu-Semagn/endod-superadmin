@@ -16,7 +16,7 @@ from fastapi.responses import Response, StreamingResponse
 from starlette.background import BackgroundTask
 from pydantic import BaseModel, Field, field_validator
 
-from app import audit, hospital
+from app import audit, hospital, organisation
 from app.auth import Principal, current_admin, fresh_admin
 from app.db import session_scope
 from app.errors import ApiError
@@ -59,9 +59,12 @@ def _audited(principal: Principal, action: str, hospital_id: str, call: Callable
 
 @router.get("/dashboard")
 def dashboard(_: Principal = Depends(current_admin)) -> Dict[str, Any]:
-    """The counts available now; each is null (with the reason) if the hospital service fails."""
+    """The counts available now; each is null (with the reason) if its service fails.
+    Company applications are counted only once TenaCare is connected
+    (``companies_connected``); until then that is not an error."""
     counts: Dict[str, Any] = {"pending_applications": None, "approved_hospitals": None,
-                              "awaiting_review": [], "errors": []}
+                              "awaiting_review": [], "pending_company_applications": None,
+                              "companies_connected": organisation.configured(), "errors": []}
     try:
         applications = hospital.list_applications()
         submitted = [a for a in applications if a.get("status") == "submitted"]
@@ -73,6 +76,11 @@ def dashboard(_: Principal = Depends(current_admin)) -> Dict[str, Any]:
         counts["approved_hospitals"] = len(hospital.list_hospitals("approved"))
     except ApiError as exc:
         if exc.message not in counts["errors"]:
+            counts["errors"].append(exc.message)
+    if counts["companies_connected"]:
+        try:
+            counts["pending_company_applications"] = len(organisation.list_applications("submitted"))
+        except ApiError as exc:
             counts["errors"].append(exc.message)
     return counts
 

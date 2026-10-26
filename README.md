@@ -1,13 +1,16 @@
 # Endod super admin
 
 The admin site for Endod staff at **admin.endod-health.com**: review the
-applications of hospitals and clinics that want to join Endod, approve or
-reject them, suspend or re-approve hospitals, and see who did what in the
-audit log.
+applications of hospitals and clinics that want to join Endod, and of
+companies that apply on TenaCare (organisation.endod-health.com); approve or
+reject them, suspend or re-approve hospitals, suspend or reactivate companies,
+and see who did what in the audit log.
 
 It is its own service with its own database. It reads and changes hospitals
 only through the hospital service's platform API (`/platform/...`, with
-`X-Platform-Key`); it never touches the hospital database.
+`X-Platform-Key`), and companies only through TenaCare's platform API (the
+contract is [docs/company-onboarding.md](docs/company-onboarding.md)); it never
+touches either database.
 
 ```
 browser ── https ──> nginx (sets X-Endod-Client-IP, X-Endod-Edge-Key) ──> web (Next.js, this repo's root)
@@ -15,7 +18,8 @@ browser ── https ──> nginx (sets X-Endod-Client-IP, X-Endod-Edge-Key) �
                                 ▼  X-BFF-Secret, X-Endod-Client-IP
                                api (FastAPI, backend/) ──> postgres (own volume; connects as the app role)
                                 │
-                                └── endod-bus ──> endod-hospital-api  (X-Platform-Key; never leaves the api)
+                                ├── endod-bus ──> endod-hospital-api      (X-Platform-Key; never leaves the api)
+                                └── endod-bus ──> endod-organisation-api  (TenaCare; its own X-Platform-Key)
 ```
 
 ## What works (step 1)
@@ -50,10 +54,22 @@ browser ── https ──> nginx (sets X-Endod-Client-IP, X-Endod-Edge-Key) �
   that is not submitted yet.
 - **Organisations**: the real hospitals and clinics, a detail page, Suspend and
   Re-approve.
+- **Companies** (a Hospitals | Companies switch on Verifications and
+  Organisations): TenaCare's company applications with status filters and
+  search; the detail page (company, TIN, business license, sector, employees,
+  applicant) with the three documents (trade license, TIN certificate,
+  authorization letter; same streaming, cap and safe headers as the hospital
+  documents); Approve and Reject with a reason (fresh TOTP; the admin's email
+  goes to TenaCare as `reviewer`). The Companies directory shows status,
+  employees and admins, with Suspend and Reactivate (fresh TOTP). TenaCare's
+  errors (its 409 when an application is not submitted) are shown as given.
+  Until `ORGANISATION_PLATFORM_KEY` is set, these routes answer 503 and the
+  pages say "Companies are not connected yet"; the hospital side is unaffected.
 - **Audit logs**: every sign-in step (success or failure), enrolment,
-  re-authentication, approve, reject, suspend, delete and document view, with
+  re-authentication, approve, reject, suspend, delete and document view (for
+  hospitals and companies alike, as separate actions), with
   the admin, time, address, target and result; filters and paging.
-- **Dashboard**: pending applications and approved hospitals. **Settings**: the
+- **Dashboard**: pending hospital and company applications and approved hospitals. **Settings**: the
   admins (read-only). Users, Digital cards, Locations and System monitoring
   show "Coming soon" (step 2).
 
@@ -89,6 +105,7 @@ python -m venv .venv
 .venv/bin/pip install -r backend/requirements-dev.txt        # Windows: .venv\Scripts\pip
 cd backend
 export HOSPITAL_API_URL=http://127.0.0.1:8020 HOSPITAL_PLATFORM_KEY=<the hospital service's key>
+export ORGANISATION_API_URL=http://127.0.0.1:8040 ORGANISATION_PLATFORM_KEY=<TenaCare's ORG_PLATFORM_KEY>   # optional
 ../.venv/bin/alembic upgrade head
 ../.venv/bin/python -m app.cli create-admin --email you@example.com --name "You"
 ../.venv/bin/uvicorn app.main:app --port 8030
@@ -99,7 +116,8 @@ SESSION_COOKIE_SECURE=false npm run dev                       # http://localhost
 ```
 
 Without a hospital service, run the stub instead: `python backend/tests/hospital_stub.py 8020`
-with `STUB_PLATFORM_KEY` set to the same key.
+with `STUB_PLATFORM_KEY` set to the same key. Likewise for TenaCare:
+`python backend/tests/organisation_stub.py 8040` with `STUB_ORG_PLATFORM_KEY`.
 
 ## Tests
 
@@ -112,23 +130,29 @@ npx playwright test                                           # installed Chrome
 ```
 
 The browser tests start the API (migrated with Alembic, a throwaway SQLite
-database), a stub of the hospital platform API (`backend/tests/hospital_stub.py`)
-and `next start`, then go through the setup link, enrolment (the test computes
-the TOTP codes), sign-in, approve, reject, the 409, documents, lockout and the
-signed-out redirects. Run `next build` first. CI (`.github/workflows/ci.yml`)
+database), stubs of the hospital and TenaCare platform APIs
+(`backend/tests/hospital_stub.py`, `backend/tests/organisation_stub.py`), a
+second API on the same database without TenaCare's key (the "not connected"
+state) and `next start`, then go through the setup link, enrolment (the test
+computes the TOTP codes), sign-in, approve, reject, the 409, documents (hospital
+and company), the Companies directory, lockout and the signed-out redirects. Run `next build` first. CI (`.github/workflows/ci.yml`)
 runs all of it, the backend tests on SQLite and PostgreSQL, the migrations on
 PostgreSQL, and builds both images.
 
 ## Deploy
 
 1. On the server, the hospital service's compose project must be up (it
-   creates the `endod-bus` network with `endod-hospital-api` on it), and the
+   creates the `endod-bus` network with `endod-hospital-api` on it; TenaCare's
+   API joins it as `endod-organisation-api`), and the
    shared nginx edge network must exist (`eyita_edge`, or set
    `SHARED_NGINX_NETWORK`).
 2. `cd deploy && cp .env.example .env` and fill it in: the three database
    passwords and the two URLs (`ADMIN_MIGRATE_DATABASE_URL` as `admin_owner`,
    `ADMIN_DATABASE_URL` as `admin_app`), `HOSPITAL_PLATFORM_KEY` (the hospital
-   service's `HOSPITAL_PLATFORM_ADMIN_KEY`), `SESSION_SECRET` and
+   service's `HOSPITAL_PLATFORM_ADMIN_KEY`), `ORGANISATION_PLATFORM_KEY`
+   (TenaCare's `ORG_PLATFORM_KEY`; optional: unset, companies answer "not
+   connected yet"; `ORGANISATION_API_URL` defaults to
+   `http://endod-organisation-api:8000`), `SESSION_SECRET` and
    `BFF_SHARED_SECRET` and `EDGE_SHARED_SECRET` (32+ random characters each),
    `SITE_ORIGIN=https://admin.endod-health.com`.
 3. `docker compose --env-file .env up -d --build`. The `migrate` service applies
