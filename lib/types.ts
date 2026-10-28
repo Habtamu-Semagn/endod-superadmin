@@ -175,7 +175,7 @@ export type AuditItem = {
   id: string;
   at: string;
   action: string;
-  result: "success" | "failure";
+  result: "success" | "failure" | "pending";
   admin_id: string | null;
   admin_email: string | null;
   ip: string | null;

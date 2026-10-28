@@ -20,7 +20,8 @@ export default function UsersStaffContent() {
   useEffect(() => {
     // Only the latest search's answer is shown, whatever order they arrive in.
     let current = true;
-    apiFetch<PatientSearch>(`patients?query=${encodeURIComponent(query)}`)
+    // A POST: what was searched stays out of URLs and access logs.
+    apiFetch<PatientSearch>("patients/search", { method: "POST", body: { query } })
       .then((data) => {
         if (!current) return;
         setResult(data);
@@ -50,6 +51,7 @@ export default function UsersStaffContent() {
             <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Users</h1>
             <p className="text-xs text-slate-500 mt-1">
               Patient accounts on the Endod app. Account details only: health data is never shown here.
+              Suspending signs the patient out and blocks sign-in and new hospital links; prescriptions and existing hospital links keep working.
             </p>
           </div>
         </div>

@@ -160,7 +160,7 @@ export default function PatientDetailContent() {
           title={action === "suspend" ? `Suspend ${account.name ?? account.dedan_id}?` : `Reactivate ${account.name ?? account.dedan_id}?`}
           description={
             action === "suspend"
-              ? "The patient is signed out on every device and cannot sign in, by password or by a reset by phone, until the account is reactivated."
+              ? "Suspending signs the patient out and blocks sign-in and new hospital links; prescriptions and existing hospital links keep working. It lasts until the account is reactivated."
               : "The patient can sign in again. Sessions ended by the suspension stay ended."
           }
           confirmLabel={action === "suspend" ? "Suspend" : "Reactivate"}

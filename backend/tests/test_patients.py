@@ -26,18 +26,43 @@ def fresh(client, clock, admin):
 
 # --- accounts ----------------------------------------------------------------------------
 
+def search(client, headers, query=""):
+    return client.post("/patients/search", json={"query": query}, headers=headers)
+
+
 def test_search(client, platform_stub, admin):
-    body = client.get("/patients", headers=admin[0]).json()
+    body = search(client, admin[0]).json()
     assert [r["dedan_id"] for r in body["items"]] == ["DE100001", "DE100002", "DE100003", "DE100004"]
-    found = client.get("/patients", params={"query": "girma"}, headers=admin[0]).json()["items"]
+    found = search(client, admin[0], "girma").json()["items"]
     assert [r["name"] for r in found] == ["Bekele Girma"]
-    # The query goes to the platform as a parameter, with the admin key.
-    method, path, params = platform_stub.app.state.calls[-1]
-    assert (method, path, params) == ("GET", "/internal/admin/users", {"query": "girma"})
-    assert client.get("/patients", params={"query": "x" * 101}, headers=admin[0]).status_code == 422
-    searches = events("patient_search")
-    assert [json.loads(e[4])["query"] for e in searches] == ["", "girma"]
-    assert all(e[1] == "success" and e[2] == "ops@endod.example" for e in searches)
+    # The query goes to the platform in a POST body, never in a URL.
+    method, path, params, sent = platform_stub.app.state.calls[-1]
+    assert (method, path, params, json.loads(sent)) == ("POST", "/internal/admin/users/search", {},
+                                                       {"query": "girma"})
+    assert search(client, admin[0], "x" * 101).status_code == 422
+    assert client.get("/patients", params={"query": "girma"}, headers=admin[0]).status_code in (404, 405)
+
+
+def test_searches_are_audited_without_the_words(client, platform_stub, admin):
+    queries = ["", "Almaz Tefera", "almaz  TEFERA", "+251911223344", "0911 223 344", "almaz@example.com",
+               "de100001", "DE100001"]
+    for query in queries:
+        assert search(client, admin[0], query).status_code == 200
+    rows = events("patient_search")
+    details = [json.loads(e[4]) for e in rows]
+    assert [d["query_kind"] for d in details] == ["all", "name", "name", "phone", "phone", "email",
+                                                  "endod_id", "endod_id"]
+    assert details[0]["query_hash"] is None
+    # The same search (any case or spacing) has the same short hash; others differ.
+    assert details[1]["query_hash"] == details[2]["query_hash"]
+    assert details[6]["query_hash"] == details[7]["query_hash"]
+    assert len({d["query_hash"] for d in details[1:]}) == 5
+    assert all(len(d["query_hash"]) == 12 for d in details[1:])
+    assert all(e[1] == "success" and e[2] == "ops@endod.example" for e in rows)
+    # None of the words typed is stored.
+    stored = json.dumps(details).lower()
+    for word in ("almaz", "tefera", "251911223344", "911", "example.com", "de100001"):
+        assert word not in stored
 
 
 def test_detail_is_account_data_only(client, platform_stub, admin):
@@ -61,7 +86,7 @@ def test_detail_is_account_data_only(client, platform_stub, admin):
 def test_health_fields_are_dropped_even_if_the_platform_sent_them(client, platform_stub, admin, fresh):
     platform_stub.app.state.leak = True
     answers = [
-        client.get("/patients", headers=admin[0]),
+        search(client, admin[0]),
         client.get("/patients/DE100001", headers=admin[0]),
         client.post("/patients/DE100002/suspend", json={"reason": "Abuse of the booking system."},
                     headers=fresh),
@@ -100,17 +125,67 @@ def test_suspend_and_reactivate_need_a_fresh_code_and_a_reason(client, platform_
     assert closed.status_code == 409 and closed.json()["error"] == "This account is closed."
 
     suspended = events("patient_suspend")
-    assert [(e[1], e[3]) for e in suspended] == [("success", "DE100001"), ("failure", "DE100001"),
-                                                 ("failure", "DE100004")]
-    assert json.loads(suspended[0][4]) == {"reason": "Fake bookings at two hospitals."}
-    assert suspended[0][2] == "ops@endod.example"
+    assert [(e[1], e[3]) for e in suspended] == [
+        ("pending", "DE100001"), ("success", "DE100001"), ("pending", "DE100001"), ("failure", "DE100001"),
+        ("pending", "DE100004"), ("failure", "DE100004")]
+    first, done = json.loads(suspended[0][4]), json.loads(suspended[1][4])
+    assert first["reason"] == "Fake bookings at two hospitals." and first["attempt"] == done["attempt"]
+    assert json.loads(suspended[3][4])["error_class"] == "UPSTREAM_409"
+    assert all(e[2] == "ops@endod.example" for e in suspended)
     reactivated = events("patient_reactivate")
-    assert [(e[1], json.loads(e[4])["reason"]) for e in reactivated] == [("success", "Cleared by the hospitals.")]
+    assert [(e[1], json.loads(e[4])["reason"]) for e in reactivated] == [
+        ("pending", "Cleared by the hospitals."), ("success", "Cleared by the hospitals.")]
+
+
+def test_a_change_is_on_record_before_the_platform_is_called(client, platform_stub, fresh, monkeypatch):
+    """The pending row is committed first; if this service fails after the
+    platform made the change, that row (and a failure with the class) remain."""
+    from app import platform
+
+    seen_before_call = []
+    real = platform.suspend
+
+    def suspend_then_crash(*args, **kwargs):
+        seen_before_call.extend(events("patient_suspend"))
+        real(*args, **kwargs)  # the platform suspends the account...
+        raise RuntimeError("lost after the platform answered")  # ...and then this service fails
+
+    monkeypatch.setattr(platform, "suspend", suspend_then_crash)
+    no_raise = __import__("fastapi.testclient", fromlist=["TestClient"]).TestClient(
+        client.app, headers=dict(client.headers), raise_server_exceptions=False)
+    resp = no_raise.post("/patients/DE100002/suspend", json={"reason": "Abuse of the booking system."},
+                         headers=fresh)
+    assert resp.status_code == 500
+    assert [e[1] for e in seen_before_call] == ["pending"]
+    rows = events("patient_suspend")
+    assert [e[1] for e in rows] == ["pending", "failure"]
+    assert json.loads(rows[1][4])["error_class"] == "RuntimeError"
+    assert platform_stub.app.state.users["DE100002"]["status"] == "suspended"
+
+
+def test_the_pending_row_stays_if_the_outcome_cannot_be_written(client, platform_stub, fresh, monkeypatch):
+    from app.api import patients
+
+    real = patients._record
+
+    def record(principal, action, result, *args, **kwargs):
+        if result != "pending":
+            raise RuntimeError("database gone")
+        return real(principal, action, result, *args, **kwargs)
+
+    monkeypatch.setattr(patients, "_record", record)
+    no_raise = __import__("fastapi.testclient", fromlist=["TestClient"]).TestClient(
+        client.app, headers=dict(client.headers), raise_server_exceptions=False)
+    resp = no_raise.post("/patients/DE100002/suspend", json={"reason": "Abuse of the booking system."},
+                         headers=fresh)
+    assert resp.status_code == 500
+    assert [e[1] for e in events("patient_suspend")] == ["pending"]
+    assert platform_stub.app.state.users["DE100002"]["status"] == "suspended"
 
 
 def test_the_admin_key_goes_with_every_call_and_never_back(client, platform_stub, admin, monkeypatch):
     monkeypatch.setenv("SUPERADMIN_API_KEY", "a-wrong-admin-key-0123456789abcdefghij")
-    resp = client.get("/patients", headers=admin[0])
+    resp = search(client, admin[0])
     assert resp.status_code == 502 and resp.json()["error_code"] == "UPSTREAM_AUTH"
     assert "a-wrong-admin-key" not in resp.text and SUPERADMIN_API_KEY not in resp.text
     # The admin is still signed in.
@@ -119,8 +194,8 @@ def test_the_admin_key_goes_with_every_call_and_never_back(client, platform_stub
 
 def test_not_connected(client, platform_stub, admin, monkeypatch):
     monkeypatch.delenv("SUPERADMIN_API_KEY")
-    for path in ("/patients", "/patients/DE100001", "/cards/DE100001"):
-        resp = client.get(path, headers=admin[0])
+    for resp in (search(client, admin[0]), client.get("/patients/DE100001", headers=admin[0]),
+                 client.get("/cards/DE100001", headers=admin[0])):
         assert resp.status_code == 503 and resp.json()["error_code"] == "PLATFORM_NOT_CONNECTED"
     resp = client.post("/patients/DE100001/suspend", json={"reason": "Abuse."}, headers=admin[0])
     assert resp.status_code == 503
@@ -136,7 +211,7 @@ def test_unreachable_platform(client, admin, monkeypatch):
         raise httpx.ConnectError("refused", request=request)
 
     monkeypatch.setattr(platform, "transport", httpx.MockTransport(refuse))
-    resp = client.get("/patients", headers=admin[0])
+    resp = search(client, admin[0])
     assert resp.status_code == 502 and resp.json()["error_code"] == "UPSTREAM_UNAVAILABLE"
     body = client.get("/dashboard", headers=admin[0]).json()
     assert body["platform"] is None and "The patient platform is not reachable" in body["errors"][0]

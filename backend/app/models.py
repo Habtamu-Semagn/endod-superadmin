@@ -128,7 +128,10 @@ class AuthFailure(Base):
 class AuditResult:
     SUCCESS = "success"
     FAILURE = "failure"
-    ALL = (SUCCESS, FAILURE)
+    #: Written before a change is sent to another service; the outcome follows
+    #: as its own row (the log is append-only), with the same ``attempt``.
+    PENDING = "pending"
+    ALL = (SUCCESS, FAILURE, PENDING)
 
 
 class AuditEvent(Base):

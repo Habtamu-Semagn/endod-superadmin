@@ -118,7 +118,8 @@ def stats() -> Dict[str, Any]:
 
 
 def search(query: str) -> Dict[str, Any]:
-    body = _call("GET", "/internal/admin/users", params={"query": query})
+    # In the body, not the URL: no access log keeps what was searched.
+    body = _call("POST", "/internal/admin/users/search", json={"query": query})
     items = body.get("items")
     if not isinstance(items, list):
         raise ApiError(502, "Unexpected answer from the patient platform.", "UPSTREAM_INVALID")

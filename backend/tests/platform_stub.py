@@ -75,7 +75,8 @@ def _err(status: int, message: str) -> JSONResponse:
 @app.middleware("http")
 async def admin_key(request: Request, call_next):
     if request.url.path.startswith("/internal/admin"):
-        app.state.calls.append((request.method, request.url.path, dict(request.query_params)))
+        body = (await request.body()).decode("utf-8", "replace")
+        app.state.calls.append((request.method, request.url.path, dict(request.query_params), body))
         if request.headers.get("x-superadmin-key") != KEY:
             return _err(401, "Not authorised.")
     return await call_next(request)
@@ -118,9 +119,11 @@ def stats():
             "timezone": "Africa/Addis_Ababa", "generated_at": "2026-10-28T09:00:00+00:00"}
 
 
-@app.get("/internal/admin/users")
-def search(query: str = ""):
-    value = query.strip().lower()
+@app.post("/internal/admin/users/search")
+async def search(request: Request):
+    body = await request.json()
+    query = body.get("query", "") if isinstance(body, dict) else ""
+    value = (query if isinstance(query, str) else "").strip().lower()
     rows = sorted(app.state.users.values(), key=lambda u: u["created_at"], reverse=True)
     if value:
         rows = [u for u in rows if any(value in (u.get(k) or "").lower() for k in ("name", "phone", "email",
