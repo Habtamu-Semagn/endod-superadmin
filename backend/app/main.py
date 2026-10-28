@@ -26,6 +26,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or get_settings()
     # Fail at start, not at the first sign-in, when the secret is missing in production.
     settings.session_secret()
+    # ... or with a platform key that is weak or another secret's value.
+    settings.check_superadmin_key()
     bff_secret = settings.bff_secret().encode()
     app = FastAPI(
         title="Endod Admin Service",

@@ -8,6 +8,7 @@ defaults and are prefixed ``ADMIN_``.
 
 from __future__ import annotations
 
+import hmac
 from typing import Optional
 
 from pydantic import field_validator
@@ -51,6 +52,9 @@ class Settings(BaseSettings):
     SUPERADMIN_API_KEY: Optional[str] = None
     #: Seconds to wait for the patient platform.
     PLATFORM_API_TIMEOUT: float = 15.0
+    #: Only read to refuse a SUPERADMIN_API_KEY with the same value (the web
+    #: app holds it; compose does not give it to the API).
+    EDGE_SHARED_SECRET: Optional[str] = None
     #: Seconds each service's health check may take (System monitoring).
     HEALTH_CHECK_TIMEOUT: float = 5.0
 
@@ -110,6 +114,25 @@ class Settings(BaseSettings):
         if self.is_production or secret:
             raise RuntimeError("SESSION_SECRET must be set to at least 32 random characters.")
         return DEV_SESSION_SECRET
+
+    def check_superadmin_key(self) -> None:
+        """Refuse to start with a SUPERADMIN_API_KEY that is too short or the
+        value of another of this service's secrets. Unset is allowed: the
+        patient pages then say "not connected yet"."""
+        key = self.SUPERADMIN_API_KEY
+        if not key:
+            return
+        if len(key) < 32:
+            raise RuntimeError("SUPERADMIN_API_KEY must be at least 32 characters.")
+        others = {
+            "SESSION_SECRET": self.SESSION_SECRET, "BFF_SHARED_SECRET": self.BFF_SHARED_SECRET,
+            "HOSPITAL_PLATFORM_KEY": self.HOSPITAL_PLATFORM_KEY,
+            "ORGANISATION_PLATFORM_KEY": self.ORGANISATION_PLATFORM_KEY,
+            "EDGE_SHARED_SECRET": self.EDGE_SHARED_SECRET,
+        }
+        for name, value in others.items():
+            if value and hmac.compare_digest(value.encode(), key.encode()):
+                raise RuntimeError(f"SUPERADMIN_API_KEY must be its own value, not that of {name}.")
 
     def bff_secret(self) -> str:
         secret = self.BFF_SHARED_SECRET or ""
