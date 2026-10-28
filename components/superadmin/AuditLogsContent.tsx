@@ -32,6 +32,11 @@ const ACTION_LABELS: Record<string, string> = {
   company_suspend: "Company suspended",
   company_reactivate: "Company reactivated",
   company_document_view: "Company document viewed",
+  patient_search: "Patient accounts searched",
+  patient_view: "Patient account viewed",
+  patient_suspend: "Patient account suspended",
+  patient_reactivate: "Patient account reactivated",
+  card_check: "Digital card checked",
 };
 
 const RESULT = {

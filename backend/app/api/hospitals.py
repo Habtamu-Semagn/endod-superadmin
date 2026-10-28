@@ -16,7 +16,7 @@ from fastapi.responses import Response, StreamingResponse
 from starlette.background import BackgroundTask
 from pydantic import BaseModel, Field, field_validator
 
-from app import audit, hospital, organisation
+from app import audit, hospital, organisation, platform
 from app.auth import Principal, current_admin, fresh_admin
 from app.db import session_scope
 from app.errors import ApiError
@@ -60,28 +60,51 @@ def _audited(principal: Principal, action: str, hospital_id: str, call: Callable
 @router.get("/dashboard")
 def dashboard(_: Principal = Depends(current_admin)) -> Dict[str, Any]:
     """The counts available now; each is null (with the reason) if its service fails.
-    Company applications are counted only once TenaCare is connected
-    (``companies_connected``); until then that is not an error."""
+    Companies are counted only once TenaCare is connected (``companies_connected``),
+    and patient accounts, bookings and prescriptions once the patient platform is
+    (``platform_connected``); until then that is not an error."""
     counts: Dict[str, Any] = {"pending_applications": None, "approved_hospitals": None,
-                              "awaiting_review": [], "pending_company_applications": None,
-                              "companies_connected": organisation.configured(), "errors": []}
+                              "pending_hospitals": None, "awaiting_review": [],
+                              "pending_company_applications": None, "approved_companies": None,
+                              "awaiting_company_review": [],
+                              "companies_connected": organisation.configured(),
+                              "platform_connected": platform.configured(), "platform": None, "errors": []}
+
+    def note(exc: ApiError) -> None:
+        if exc.message not in counts["errors"]:
+            counts["errors"].append(exc.message)
+
     try:
         applications = hospital.list_applications()
         submitted = [a for a in applications if a.get("status") == "submitted"]
         counts["pending_applications"] = len(submitted)
         counts["awaiting_review"] = sorted(submitted, key=lambda a: a.get("submitted_at") or "")[:5]
     except ApiError as exc:
-        counts["errors"].append(exc.message)
+        note(exc)
     try:
-        counts["approved_hospitals"] = len(hospital.list_hospitals("approved"))
+        hospitals = hospital.list_hospitals()
+        counts["approved_hospitals"] = sum(1 for h in hospitals if h.get("status") == "approved")
+        counts["pending_hospitals"] = sum(1 for h in hospitals if h.get("status") == "pending")
     except ApiError as exc:
-        if exc.message not in counts["errors"]:
-            counts["errors"].append(exc.message)
+        note(exc)
     if counts["companies_connected"]:
         try:
-            counts["pending_company_applications"] = len(organisation.list_applications("submitted"))
+            submitted = organisation.list_applications("submitted")
+            counts["pending_company_applications"] = len(submitted)
+            counts["awaiting_company_review"] = sorted(
+                submitted, key=lambda a: a.get("submitted_at") or "")[:5]
         except ApiError as exc:
-            counts["errors"].append(exc.message)
+            note(exc)
+        try:
+            counts["approved_companies"] = sum(
+                1 for c in organisation.list_organisations() if c.get("status") == "active")
+        except ApiError as exc:
+            note(exc)
+    if counts["platform_connected"]:
+        try:
+            counts["platform"] = platform.stats()
+        except ApiError as exc:
+            note(exc)
     return counts
 
 

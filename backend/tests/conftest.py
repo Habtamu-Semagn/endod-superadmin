@@ -12,6 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 PASSWORD = "Correct-Horse-42"
 PLATFORM_KEY = "test-platform-key"
 ORG_PLATFORM_KEY = "test-org-platform-key"
+SUPERADMIN_API_KEY = "test-admin-api-key-0123456789abcdefghij"
 BFF_SECRET = "test-bff-secret-0123456789abcdefghijklmnopqrst"
 CLIENT_IP = "198.51.100.10"
 
@@ -49,6 +50,8 @@ def db(tmp_path, monkeypatch):
     monkeypatch.setenv("HOSPITAL_PLATFORM_KEY", PLATFORM_KEY)
     monkeypatch.setenv("ORGANISATION_API_URL", "http://tenacare.test")
     monkeypatch.setenv("ORGANISATION_PLATFORM_KEY", ORG_PLATFORM_KEY)
+    monkeypatch.setenv("PLATFORM_API_URL", "http://platform.test")
+    monkeypatch.setenv("SUPERADMIN_API_KEY", SUPERADMIN_API_KEY)
     monkeypatch.setenv("SITE_ORIGIN", "https://admin.example")
     monkeypatch.setenv("BFF_SHARED_SECRET", BFF_SECRET)
     dbmod.reset_engine()
@@ -110,7 +113,29 @@ def org_stub(monkeypatch):
 
 
 @pytest.fixture
-def client(db, stub, org_stub):
+def platform_stub(monkeypatch):
+    """The patient platform's admin API stub (tests/platform_stub.py), reached through httpx."""
+    import platform_stub as stub_module
+
+    from app import platform
+
+    stub_module.app.state.users = stub_module.initial_state()
+    stub_module.app.state.calls = []
+    stub_module.app.state.degraded = False
+    stub_module.app.state.leak = False
+    stub_client = TestClient(stub_module.app)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        answer = stub_client.request(request.method, str(request.url.copy_with(scheme="http", host="testserver")),
+                                     headers=dict(request.headers), content=request.content)
+        return httpx.Response(answer.status_code, headers=answer.headers, content=answer.content)
+
+    monkeypatch.setattr(platform, "transport", httpx.MockTransport(handler))
+    return stub_module
+
+
+@pytest.fixture
+def client(db, stub, org_stub, platform_stub):
     """The API as the BFF calls it: with the shared secret and the visitor's address."""
     from app.main import create_app
 

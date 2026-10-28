@@ -76,3 +76,35 @@ export function sizeLabel(bytes?: number | null): string {
   if (!bytes) return "";
   return bytes >= 1024 * 1024 ? `${(bytes / (1024 * 1024)).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`;
 }
+
+export const PATIENT_STATUS: Record<string, { label: string; className: string }> = {
+  active: { label: "Active", className: "bg-emerald-50 text-emerald-700 border border-emerald-200" },
+  suspended: { label: "Suspended", className: "bg-rose-50 text-rose-800 border border-rose-200" },
+  deactivated: { label: "Closed", className: "bg-slate-200 text-slate-800 border border-slate-300" },
+};
+
+/** An Endod ID ("DE123456") from what was typed: the ID itself, or a card's QR
+ * link (`.../card/DE123456?s=...`), with the link's signature when it has one. */
+export function parseCardInput(value: string): { dedanId: string; signature: string | null } | null {
+  const text = value.trim();
+  if (/^de\d{6}$/i.test(text)) return { dedanId: text.toUpperCase(), signature: null };
+  const link = /\/card\/(de\d{6})(?:\?([^#]*))?(?:#.*)?$/i.exec(text);
+  if (!link) return null;
+  const s = new URLSearchParams(link[2] ?? "").get("s");
+  return { dedanId: link[1].toUpperCase(), signature: s && /^[A-Za-z0-9_-]{1,64}$/.test(s) ? s : null };
+}
+
+const timeOnly = new Intl.DateTimeFormat("en-GB", {
+  timeZone: TIMEZONE,
+  hour: "2-digit",
+  minute: "2-digit",
+  second: "2-digit",
+  hour12: false,
+});
+
+/** A time of day with seconds ("14:05:31 EAT"), for "last checked". */
+export function formatTime(iso: string | null | undefined): string {
+  if (!iso) return "—";
+  const date = new Date(iso);
+  return Number.isNaN(date.getTime()) ? "—" : `${timeOnly.format(date)} EAT`;
+}

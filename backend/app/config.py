@@ -2,7 +2,7 @@
 
 The names match deploy/.env.example: ADMIN_DATABASE_URL, HOSPITAL_API_URL,
 HOSPITAL_PLATFORM_KEY, ORGANISATION_API_URL, ORGANISATION_PLATFORM_KEY,
-SESSION_SECRET and SITE_ORIGIN; the rest have safe
+PLATFORM_API_URL, SUPERADMIN_API_KEY, SESSION_SECRET and SITE_ORIGIN; the rest have safe
 defaults and are prefixed ``ADMIN_``.
 """
 
@@ -42,6 +42,17 @@ class Settings(BaseSettings):
     ORGANISATION_PLATFORM_KEY: Optional[str] = None
     #: Seconds to wait for TenaCare.
     ORGANISATION_API_TIMEOUT: float = 15.0
+
+    #: The patient platform's internal API (its internal-api service), on the
+    #: same bus network: /internal/admin (patient accounts, counts, cards, health).
+    PLATFORM_API_URL: str = "http://endod-platform-api:8000"
+    #: Sent as X-Superadmin-Key (the platform's SUPERADMIN_API_KEY, the same value).
+    #: Never leaves this service. Unset: the patient pages answer 503.
+    SUPERADMIN_API_KEY: Optional[str] = None
+    #: Seconds to wait for the patient platform.
+    PLATFORM_API_TIMEOUT: float = 15.0
+    #: Seconds each service's health check may take (System monitoring).
+    HEALTH_CHECK_TIMEOUT: float = 5.0
 
     #: Keys the hashes of session tokens, setup links and recovery codes, and
     #: encrypts TOTP secrets at rest (via HKDF, a separate key for each use).
@@ -83,7 +94,7 @@ class Settings(BaseSettings):
     def _lower(cls, value):
         return value.strip().lower() if isinstance(value, str) else value
 
-    @field_validator("SITE_ORIGIN", "HOSPITAL_API_URL", "ORGANISATION_API_URL", mode="before")
+    @field_validator("SITE_ORIGIN", "HOSPITAL_API_URL", "ORGANISATION_API_URL", "PLATFORM_API_URL", mode="before")
     @classmethod
     def _no_trailing_slash(cls, value):
         return value.strip().rstrip("/") if isinstance(value, str) else value

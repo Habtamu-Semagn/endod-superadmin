@@ -74,9 +74,27 @@ browser ── https ──> nginx (sets X-Endod-Client-IP, X-Endod-Edge-Key) �
   re-authentication, approve, reject, suspend, delete and document view (for
   hospitals and companies alike, as separate actions), with
   the admin, time, address, target and result; filters and paging.
-- **Dashboard**: pending hospital and company applications and approved hospitals. **Settings**: the
-  admins (read-only). Users, Digital cards, Locations and System monitoring
-  show "Coming soon" (step 2).
+- **Users** (patient accounts, from the patient platform's `/internal/admin`
+  on internal-api): search by name, phone, email or Endod ID; the detail is
+  account data only (name, Endod ID, phone, email, created, last sign-in,
+  status, linked hospitals), never health data. Suspend (signs the patient
+  out everywhere and refuses sign-in) and Reactivate need a fresh TOTP and a
+  reason; the admin's email goes along as the actor. Searches, views and
+  both actions are audited.
+- **Digital cards**: an Endod ID or the card's QR link; valid or not (the
+  signature, when the link has one, and the account), issue date, account
+  status. Audited.
+- **Locations**: the hospital service's facilities on a Leaflet map
+  (OpenStreetMap tiles), by status; those without a location are listed.
+- **System monitoring**: the patient platform (`/health` and its admin
+  report: database, Redis, events worker heartbeat, dead letters, outbox
+  backlog), the hospital service, TenaCare and this service, checked by the
+  API every 30 seconds. Until `SUPERADMIN_API_KEY` is set, Users and Digital
+  cards answer 503 ("not connected yet") and the rest works.
+- **Dashboard**: hospital and company applications awaiting review, approved
+  and pending hospitals and companies, patient accounts (and new in 7 days),
+  bookings today and this week, open prescriptions. **Settings**: the admins
+  (read-only).
 
 There is no sign-up: admins exist only through the CLI.
 
@@ -111,6 +129,7 @@ python -m venv .venv
 cd backend
 export HOSPITAL_API_URL=http://127.0.0.1:8020 HOSPITAL_PLATFORM_KEY=<the hospital service's key>
 export ORGANISATION_API_URL=http://127.0.0.1:8040 ORGANISATION_PLATFORM_KEY=<TenaCare's ORG_PLATFORM_KEY>   # optional
+export PLATFORM_API_URL=http://127.0.0.1:8050 SUPERADMIN_API_KEY=<the platform's SUPERADMIN_API_KEY>   # optional
 ../.venv/bin/alembic upgrade head
 ../.venv/bin/python -m app.cli create-admin --email you@example.com --name "You"
 ../.venv/bin/uvicorn app.main:app --port 8030
@@ -157,7 +176,10 @@ PostgreSQL, and builds both images.
    service's `HOSPITAL_PLATFORM_ADMIN_KEY`), `ORGANISATION_PLATFORM_KEY`
    (TenaCare's `ORG_PLATFORM_KEY`; optional: unset, companies answer "not
    connected yet"; `ORGANISATION_API_URL` defaults to
-   `http://endod-organisation-api:8000`), `SESSION_SECRET` and
+   `http://endod-organisation-api:8000`), `SUPERADMIN_API_KEY` (the patient
+   platform's `SUPERADMIN_API_KEY`, the same value; optional: unset, Users and
+   Digital cards answer "not connected yet"; `PLATFORM_API_URL` defaults to
+   `http://endod-platform-api:8000`), `SESSION_SECRET` and
    `BFF_SHARED_SECRET` and `EDGE_SHARED_SECRET` (32+ random characters each),
    `SITE_ORIGIN=https://admin.endod-health.com`.
 3. `docker compose --env-file .env up -d --build`. The `migrate` service applies

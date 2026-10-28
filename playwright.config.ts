@@ -8,8 +8,11 @@ import {
   ORG_STUB_PORT,
   ORG_STUB_URL,
   PLATFORM_KEY,
+  PLATFORM_STUB_PORT,
+  PLATFORM_STUB_URL,
   STUB_PORT,
   STUB_URL,
+  SUPERADMIN_API_KEY,
   UNCONNECTED_API_PORT,
   UNCONNECTED_API_URL,
   WEB_ORIGIN,
@@ -22,7 +25,7 @@ import {
 
 // Browser tests run the real stack: the admin API (uvicorn, a throwaway
 // SQLite database, migrated with Alembic), tiny stubs of the hospital
-// service's and TenaCare's platform APIs, and the web app built with `next build` and served
+// service's, TenaCare's and the patient platform's APIs, and the web app built with `next build` and served
 // by `next start`. Set E2E_NEXT_DEV=1 to use `next dev` instead.
 
 export default defineConfig({
@@ -61,6 +64,14 @@ export default defineConfig({
       reuseExistingServer: false,
       timeout: 60_000,
       env: { STUB_ORG_PLATFORM_KEY: ORG_PLATFORM_KEY, PYTHONUNBUFFERED: "1" },
+    },
+    {
+      command: `"${python}" "${path.join(backendDir, "tests", "platform_stub.py")}" ${PLATFORM_STUB_PORT}`,
+      cwd: backendDir,
+      url: `${PLATFORM_STUB_URL}/health`,
+      reuseExistingServer: false,
+      timeout: 60_000,
+      env: { STUB_SUPERADMIN_API_KEY: SUPERADMIN_API_KEY, PYTHONUNBUFFERED: "1" },
     },
     {
       command: `"${python}" "${path.join(__dirname, "e2e", "api_server.py")}" ${API_PORT}`,

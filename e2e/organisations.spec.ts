@@ -27,8 +27,6 @@ test("organisations: list, detail, suspend and re-approve", async ({ page }) => 
 
   await page.goto("/super-admin/settings");
   await expect(page.getByTestId("admin-row").filter({ hasText: "orgs-" })).toContainText("2FA on");
-  await page.goto("/super-admin/users");
-  await expect(page.getByTestId("coming-soon")).toBeVisible();
 });
 
 test("the header search finds an organisation", async ({ page }) => {

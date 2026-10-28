@@ -1,9 +1,10 @@
 # The Endod super admin (admin.endod-health.com): its own Postgres, the API
 # and the web app.
 #
-# It shares nothing with the hospital service or TenaCare but their platform
-# APIs, reached on the private "endod-bus" network (no internet) as
-# endod-hospital-api and endod-organisation-api. The web
+# It shares nothing with the hospital service, TenaCare or the patient
+# platform but their platform APIs, reached on the private "endod-bus" network
+# (no internet) as endod-hospital-api, endod-organisation-api and
+# endod-platform-api. The web
 # app joins the shared nginx edge network as "endod-admin"; nginx terminates
 # TLS for admin.endod-health.com and proxies to http://endod-admin:3000.
 #
@@ -69,6 +70,10 @@ services:
       # Optional: without the key the company pages say "not connected yet".
       ORGANISATION_API_URL: ${ORGANISATION_API_URL:-http://endod-organisation-api:8000}
       ORGANISATION_PLATFORM_KEY: ${ORGANISATION_PLATFORM_KEY:-}
+      # The patient platform's internal API (/internal/admin: patient accounts,
+      # counts, cards, health). Optional: without the key those pages say "not connected yet".
+      PLATFORM_API_URL: ${PLATFORM_API_URL:-http://endod-platform-api:8000}
+      SUPERADMIN_API_KEY: ${SUPERADMIN_API_KEY:-}
       SESSION_SECRET: ${SESSION_SECRET:?set SESSION_SECRET (at least 32 random characters)}
       SITE_ORIGIN: ${SITE_ORIGIN:-https://admin.endod-health.com}
       # Only the web app knows it: anything else reaching this API (other
