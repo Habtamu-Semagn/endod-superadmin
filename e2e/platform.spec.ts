@@ -9,6 +9,13 @@ import {
   signedInAdmin,
 } from "./helpers";
 
+/** A 1x1 PNG, served as every map tile. */
+const TILE_PNG = Buffer.from(
+  "89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000d49444154789c6360f8cf" +
+    "c0f01f0005000201e2a1a5d50000000049454e44ae426082",
+  "hex"
+);
+
 // The screens fed by the patient platform (Users, Digital cards, the
 // dashboard's patient counts, System monitoring) and the Locations map.
 
@@ -119,12 +126,28 @@ test("digital cards: by Endod ID, by QR link, forged and suspended", async ({ pa
 });
 
 test("locations: hospitals and clinics on the map, by status", async ({ page }) => {
+  // OpenStreetMap's tile servers, stood in for (the tests run offline): a
+  // tile request must carry this site's origin as its referrer (OSM refuses
+  // requests without one), and no path.
+  const referrers: (string | undefined)[] = [];
+  await page.route("https://tile.openstreetmap.org/**", async (route) => {
+    referrers.push(route.request().headers()["referer"]);
+    await route.fulfill({ status: 200, contentType: "image/png", body: TILE_PNG });
+  });
   await signedInAdmin(page, "map");
   await page.getByRole("link", { name: "Locations & Services" }).click();
   await expect(page.getByTestId("location-row")).toHaveCount(6);
   await expect(page.getByTestId("locations-map")).toBeVisible();
   await expect(page.locator(".leaflet-marker-icon")).toHaveCount(6);
   await expect(page.getByTestId("map-count")).toHaveText("6 of 6 on the map");
+  const tile = page.locator("img.leaflet-tile").first();
+  await expect(tile).toHaveAttribute("referrerpolicy", "strict-origin-when-cross-origin");
+  await expect(page.locator("img.leaflet-tile-loaded").first()).toBeVisible();
+  expect(referrers.length).toBeGreaterThan(0);
+  expect(new Set(referrers)).toEqual(new Set([`${new URL(page.url()).origin}/`]));
+  // The rest of the site still sends no referrer.
+  const policy = await page.evaluate(async () => (await fetch("/login")).headers.get("referrer-policy"));
+  expect(policy).toBe("no-referrer");
   await page.getByRole("tab", { name: "Suspended" }).click();
   await expect(page.getByTestId("location-row")).toHaveCount(1);
   await expect(page.locator(".leaflet-marker-icon")).toHaveCount(1);

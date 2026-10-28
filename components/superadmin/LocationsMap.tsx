@@ -13,6 +13,7 @@ export type MapPoint = { id: string; latitude: number; longitude: number; label:
 const ADDIS_ABABA: [number, number] = [9.03, 38.74];
 const TILES = "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
 const ATTRIBUTION = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
+export const TILE_REFERRER_POLICY = "strict-origin-when-cross-origin";
 const COLOURS: Record<string, string> = { approved: "#059669", pending: "#2563eb", suspended: "#e11d48" };
 
 function pin(status: string): string {
@@ -44,7 +45,12 @@ export default function LocationsMap({ points, onSelect }: { points: MapPoint[];
       leaflet.current = L;
       map.current = L.map(box.current, { center: ADDIS_ABABA, zoom: 6, scrollWheelZoom: false });
       map.current.attributionControl.setPrefix('<a href="https://leafletjs.com">Leaflet</a>');
-      L.tileLayer(TILES, { maxZoom: 19, attribution: ATTRIBUTION }).addTo(map.current);
+      // The site sends no referrer anywhere (Referrer-Policy: no-referrer);
+      // OpenStreetMap's tile servers refuse requests without one, so the
+      // tiles alone send this site's origin (never the page's path).
+      L.tileLayer(TILES, { maxZoom: 19, attribution: ATTRIBUTION, referrerPolicy: TILE_REFERRER_POLICY }).addTo(
+        map.current
+      );
       layer.current = L.layerGroup().addTo(map.current);
       const current = map.current;
       resize = new ResizeObserver(() => current.invalidateSize());
