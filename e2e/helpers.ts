@@ -1,7 +1,7 @@
 import { createHmac } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { expect, type APIRequestContext, type Page } from "@playwright/test";
-import { ORG_STUB_URL, STUB_URL, apiEnv, backendDir, python } from "./env";
+import { ORG_STUB_URL, PLATFORM_STUB_URL, STUB_URL, apiEnv, backendDir, python } from "./env";
 
 // --- TOTP (RFC 6238, as Google Authenticator computes it) ---------------------------------
 
@@ -179,4 +179,17 @@ export const ORG = {
   SENT_BACK: "5e".repeat(16),
   EVILCO: "6f".repeat(16),
   DORMANT: "7a".repeat(16),
+};
+
+export async function resetPlatformStub(request: APIRequestContext) {
+  const response = await request.post(`${PLATFORM_STUB_URL}/__reset`);
+  expect(response.ok()).toBe(true);
+}
+
+/** The patient platform stub's accounts (backend/tests/platform_stub.py). */
+export const PATIENT = {
+  ALMAZ: "DE100001",
+  BEKELE: "DE100002",
+  CHALTU: "DE100003", // suspended
+  DAWIT: "DE100004", // closed
 };

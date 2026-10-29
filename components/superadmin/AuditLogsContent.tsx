@@ -32,11 +32,17 @@ const ACTION_LABELS: Record<string, string> = {
   company_suspend: "Company suspended",
   company_reactivate: "Company reactivated",
   company_document_view: "Company document viewed",
+  patient_search: "Patient accounts searched",
+  patient_view: "Patient account viewed",
+  patient_suspend: "Patient account suspended",
+  patient_reactivate: "Patient account reactivated",
+  card_check: "Digital card checked",
 };
 
 const RESULT = {
   success: { label: "Success", className: "bg-emerald-100 text-emerald-800 border border-emerald-200" },
   failure: { label: "Failure", className: "bg-rose-100 text-rose-800 border border-rose-300" },
+  pending: { label: "Sent", className: "bg-amber-50 text-amber-800 border border-amber-200" },
 };
 
 /** The start of a day (yyyy-mm-dd) in Addis Ababa time (UTC+3, no daylight saving), as ISO. */
@@ -180,6 +186,7 @@ export default function AuditLogsContent() {
           <option value="">All results</option>
           <option value="success">Success</option>
           <option value="failure">Failure</option>
+          <option value="pending">Sent (outcome follows)</option>
         </select>
         <label className="text-[10px] uppercase tracking-wide text-slate-400 font-semibold">
           From

@@ -1,4 +1,5 @@
-"""The audit log: every sign-in step, enrolment and action on a hospital or a company."""
+"""The audit log: every sign-in step, enrolment and action on a hospital, a
+company or a patient account (and every look at a patient account or card)."""
 
 from __future__ import annotations
 
@@ -35,11 +36,18 @@ COMPANY_REJECT = "company_reject"
 COMPANY_SUSPEND = "company_suspend"
 COMPANY_REACTIVATE = "company_reactivate"
 COMPANY_DOCUMENT_VIEW = "company_document_view"
+# Patient accounts (the patient platform's /internal/admin): account data only.
+PATIENT_SEARCH = "patient_search"
+PATIENT_VIEW = "patient_view"
+PATIENT_SUSPEND = "patient_suspend"
+PATIENT_REACTIVATE = "patient_reactivate"
+CARD_CHECK = "card_check"
 
 ACTIONS = (
     SIGN_IN, SIGN_IN_PASSWORD, SIGN_OUT, LOCKED_OUT, BACKOFF, SETUP_LINK, SETUP_COMPLETED, ENROLMENT_STARTED,
     ENROLLED, REAUTH, APPROVE, REJECT, SUSPEND, DELETE, DOCUMENT_VIEW, ADMIN_CREATED, TWO_FACTOR_RESET,
     ADMIN_DISABLED, COMPANY_APPROVE, COMPANY_REJECT, COMPANY_SUSPEND, COMPANY_REACTIVATE, COMPANY_DOCUMENT_VIEW,
+    PATIENT_SEARCH, PATIENT_VIEW, PATIENT_SUSPEND, PATIENT_REACTIVATE, CARD_CHECK,
 )
 
 

@@ -104,7 +104,7 @@ export default function Sidebar({ collapsed, onToggle, admin, pendingCount, onSi
                 <path d="M22 21v-2a4 4 0 0 0-3-3.87"></path>
                 <circle cx="12" cy="12" r="4" fill="none" stroke="currentColor" strokeWidth="2"></circle>
               </svg>
-              <span className={collapsed ? "hidden" : ""}>Users & Staff</span>
+              <span className={collapsed ? "hidden" : ""}>Users</span>
             </div>
           </Link>
 

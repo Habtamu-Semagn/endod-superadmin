@@ -10,14 +10,18 @@ export const STUB_PORT = 8131;
 export const UNCONNECTED_API_PORT = 8132;
 /** The TenaCare platform stub. */
 export const ORG_STUB_PORT = 8133;
+/** The patient platform's admin API stub (internal-api's /internal/admin). */
+export const PLATFORM_STUB_PORT = 8134;
 export const WEB_PORT = 3230;
 export const API_URL = `http://127.0.0.1:${API_PORT}`;
 export const STUB_URL = `http://127.0.0.1:${STUB_PORT}`;
 export const UNCONNECTED_API_URL = `http://127.0.0.1:${UNCONNECTED_API_PORT}`;
 export const ORG_STUB_URL = `http://127.0.0.1:${ORG_STUB_PORT}`;
+export const PLATFORM_STUB_URL = `http://127.0.0.1:${PLATFORM_STUB_PORT}`;
 export const WEB_ORIGIN = `http://localhost:${WEB_PORT}`;
 export const PLATFORM_KEY = "e2e-platform-key";
 export const ORG_PLATFORM_KEY = "e2e-org-platform-key";
+export const SUPERADMIN_API_KEY = "e2e-superadmin-api-key-0123456789abcdef";
 export const BFF_SECRET = "e2e-bff-secret-0123456789abcdefghijklmnop";
 
 // The backend's Python: E2E_PYTHON (CI), else the repo's virtualenv.
@@ -44,6 +48,8 @@ export const apiEnv: Record<string, string> = {
   HOSPITAL_PLATFORM_KEY: PLATFORM_KEY,
   ORGANISATION_API_URL: ORG_STUB_URL,
   ORGANISATION_PLATFORM_KEY: ORG_PLATFORM_KEY,
+  PLATFORM_API_URL: PLATFORM_STUB_URL,
+  SUPERADMIN_API_KEY: SUPERADMIN_API_KEY,
   SITE_ORIGIN: WEB_ORIGIN,
   BFF_SHARED_SECRET: BFF_SECRET,
   // The browser tests all come from 127.0.0.1; the per-address limit is tested in pytest.

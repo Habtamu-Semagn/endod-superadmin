@@ -4,7 +4,7 @@ import AdminShell from "@/components/superadmin/AdminShell";
 import UsersStaffContent from "@/components/superadmin/UsersStaffContent";
 
 export const metadata: Metadata = {
-  title: "Endod Admin | Users & Staff",
+  title: "Endod Admin | Users",
 };
 
 export default function Page() {

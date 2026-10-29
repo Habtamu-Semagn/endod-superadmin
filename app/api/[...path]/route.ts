@@ -38,6 +38,12 @@ const RULES: Rule[] = [
   { pattern: new RegExp(`^company-applications/${ID}/(approve|reject)$`), methods: ["POST"] },
   { pattern: /^companies$/, methods: ["GET"] },
   { pattern: new RegExp(`^companies/${ID}/(suspend|reactivate)$`), methods: ["POST"] },
+  // Patient accounts, cards and system health (the patient platform, through the admin API).
+  { pattern: /^patients\/search$/, methods: ["POST"] },
+  { pattern: /^patients\/DE[0-9]{6}$/, methods: ["GET"] },
+  { pattern: /^patients\/DE[0-9]{6}\/(suspend|reactivate)$/, methods: ["POST"] },
+  { pattern: /^cards\/DE[0-9]{6}$/, methods: ["GET"] },
+  { pattern: /^system\/health$/, methods: ["GET"] },
   { pattern: /^audit$/, methods: ["GET"] },
   { pattern: /^admins$/, methods: ["GET"] },
 ];

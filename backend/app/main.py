@@ -15,7 +15,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException
 
-from app.api import admins, audit_log, auth, companies, hospitals
+from app.api import admins, audit_log, auth, companies, hospitals, patients, system
 from app.config import Settings, get_settings
 from app.errors import ApiError
 
@@ -26,6 +26,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or get_settings()
     # Fail at start, not at the first sign-in, when the secret is missing in production.
     settings.session_secret()
+    # ... or with a platform key that is weak or another secret's value.
+    settings.check_superadmin_key()
     bff_secret = settings.bff_secret().encode()
     app = FastAPI(
         title="Endod Admin Service",
@@ -80,6 +82,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(companies.router)
     app.include_router(audit_log.router)
     app.include_router(admins.router)
+    app.include_router(patients.router)
+    app.include_router(system.router)
     return app
 
 

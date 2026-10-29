@@ -90,18 +90,92 @@ export type Hospital = {
 export type Dashboard = {
   pending_applications: number | null;
   approved_hospitals: number | null;
+  /** Hospitals signed up and not approved yet (any application stage). */
+  pending_hospitals: number | null;
   awaiting_review: ApplicationSummary[];
   /** Submitted company applications; null while TenaCare is not connected or failed. */
   pending_company_applications: number | null;
+  approved_companies: number | null;
+  awaiting_company_review: CompanyApplicationSummary[];
   companies_connected: boolean;
+  /** The patient platform's counts; null while it is not connected or failed. */
+  platform_connected: boolean;
+  platform: PlatformStats | null;
   errors: string[];
 };
+
+// --- the patient platform (its /internal/admin API, through the admin API) ---------------
+
+export type PlatformStats = {
+  users_total: number;
+  users_new_7d: number;
+  users_suspended: number;
+  bookings_today: number;
+  bookings_week: number;
+  open_prescriptions: number;
+  generated_at: string | null;
+};
+
+export type PatientStatus = "active" | "suspended" | "deactivated";
+
+/** A patient account: account data only, never health data. */
+export type PatientAccount = {
+  dedan_id: string;
+  name: string | null;
+  phone: string | null;
+  email: string | null;
+  created_at: string | null;
+  last_sign_in_at: string | null;
+  status: PatientStatus;
+  linked_hospitals: number;
+  suspended_at: string | null;
+  suspended_reason: string | null;
+  suspended_by: string | null;
+};
+
+export type PatientSearch = { items: PatientAccount[]; limit: number | null };
+
+export type CardCheck = {
+  dedan_id: string;
+  issued_at: string | null;
+  account_status: PatientStatus;
+  signing_available: boolean;
+  signature_checked: boolean;
+  signature_valid: boolean | null;
+  valid: boolean;
+};
+
+export type PlatformReport = {
+  available: boolean;
+  detail?: string;
+  status?: string | null;
+  database_ok?: boolean | null;
+  redis_configured?: boolean | null;
+  redis_ok?: boolean | null;
+  worker_last_heartbeat?: string | null;
+  worker_ok?: boolean | null;
+  dead_letters?: number | null;
+  outbox_backlog?: number | null;
+  outbox_oldest_at?: string | null;
+};
+
+export type ServiceHealth = {
+  id: "platform" | "hospital" | "tenacare" | "admin";
+  name: string;
+  ok: boolean;
+  detail: string | null;
+  latency_ms: number | null;
+  checked_at: string;
+  report?: PlatformReport;
+};
+
+export type SystemHealth = { checked_at: string; ok: boolean; services: ServiceHealth[] };
 
 export type AuditItem = {
   id: string;
   at: string;
   action: string;
-  result: "success" | "failure";
+  result: "success" | "failure" | "pending";
   admin_id: string | null;
   admin_email: string | null;
   ip: string | null;
