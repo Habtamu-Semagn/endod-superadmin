@@ -47,8 +47,12 @@ EVIL = "f6" * 16
 
 def _hospital(hid: str, code: str, name: str, status: str, app_status: Optional[str], *, city: str,
               facility_type: str = "hospital", submitted: Optional[str] = None, demo: Optional[str] = None,
-              documents: str = "pdf", lat: float = 9.0108, lon: float = 38.7613) -> Dict[str, Any]:
+              documents: str = "pdf", lat: float = 9.0108, lon: float = 38.7613,
+              prices: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     return {
+        # The application's prices, as the hospital service sends them; None:
+        # an older hospital service that sends none (the fields are absent).
+        "prices": prices,
         "id": hid, "code": code, "name": name, "status": status, "app_status": app_status,
         "facility_type": facility_type, "kind": "private", "city": city,
         "address": f"Bole Road, {city}", "phone": "+251111234567", "latitude": lat, "longitude": lon,
@@ -64,9 +68,11 @@ def _hospital(hid: str, code: str, name: str, status: str, app_status: Optional[
 def initial_state() -> Dict[str, Dict[str, Any]]:
     rows = [
         _hospital(TENA, "TENA", "Tena Clinic", "pending", "submitted", city="Addis Ababa", facility_type="clinic",
-                  submitted="2026-10-20T06:30:00+00:00", demo="2026-10-27T10:00:00+03:00"),
+                  submitted="2026-10-20T06:30:00+00:00", demo="2026-10-27T10:00:00+03:00",
+                  prices={"price_in_person": "250.00", "price_video": None, "video_enabled": False}),
         _hospital(BETHEL, "BGH", "Bethel General Hospital", "pending", "submitted", city="Adama",
-                  submitted="2026-10-21T08:00:00+00:00", demo="2026-10-28T14:30:00+03:00", documents="png"),
+                  submitted="2026-10-21T08:00:00+00:00", demo="2026-10-28T14:30:00+03:00", documents="png",
+                  prices={"price_in_person": "0.00", "price_video": "120.00", "video_enabled": True}),
         _hospital(DRAFT, "ADC", "Abebe Draft Clinic", "pending", "draft", city="Hawassa", facility_type="clinic",
                   documents="none"),
         _hospital(YEKATIT, "YEK", "Yekatit Hospital", "approved", "approved", city="Addis Ababa",
@@ -151,7 +157,7 @@ def _application_payload(h: Dict[str, Any]) -> Dict[str, Any]:
                     "phone": h["contact"]["phone"], "email": h["contact"]["email"]},
         "facility": {"facility_type": h["facility_type"], "ownership": h["kind"], "name": h["name"],
                      "name_am": None, "city": h["city"], "phone": h["phone"], "services": h["services"],
-                     "open_hours": h["open_hours"]},
+                     "open_hours": h["open_hours"], **(h["prices"] or {})},
         "location": {"address": h["address"], "latitude": h["latitude"], "longitude": h["longitude"]},
         "documents": {"license_number": h["license_number"], "items": _documents(h)},
         "demo": None if not h["demo_at"] else {"booking_id": "9" * 32, "demo_at": h["demo_at"],

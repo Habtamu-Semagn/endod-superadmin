@@ -31,6 +31,19 @@ export function formatDate(iso: string | null | undefined): string {
   return Number.isNaN(date.getTime()) ? "—" : dateOnly.format(date);
 }
 
+/**
+ * A price from the hospital service (birr as text, e.g. "150.00") as
+ * "ETB 150.00"; "ETB 0.00 (free)" for 0; "Not given" when it is missing
+ * (older applications) or not a number.
+ */
+export function formatPrice(value: string | null | undefined): string {
+  if (value === null || value === undefined || value.trim() === "") return "Not given";
+  const amount = Number(value);
+  if (!Number.isFinite(amount) || amount < 0) return "Not given";
+  const text = `ETB ${amount.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  return amount === 0 ? `${text} (free)` : text;
+}
+
 export function titleCase(value: string | null | undefined): string {
   if (!value) return "—";
   return value.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());

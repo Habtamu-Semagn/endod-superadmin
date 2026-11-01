@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { ApiError, apiFetch } from "@/lib/api";
-import { APPLICATION_STATUS, formatDate, formatDateTime, mapLink, titleCase } from "@/lib/format";
+import { APPLICATION_STATUS, formatDate, formatDateTime, formatPrice, mapLink, titleCase } from "@/lib/format";
 import type { Application } from "@/lib/types";
 import { Cancelled, useAdmin } from "@/components/superadmin/AdminShell";
 import Dialog from "@/components/superadmin/Dialog";
@@ -180,6 +180,22 @@ export default function VerificationDetailContent() {
             <Field label="Phone">{app.facility.phone ?? "—"}</Field>
             <Field label="Opening hours">{app.facility.open_hours ?? "—"}</Field>
             <Field label="Services">{app.facility.services.length ? app.facility.services.map(titleCase).join(", ") : "—"}</Field>
+            <Field label="In-person visit price">
+              <span
+                data-testid="price-in-person"
+                className={formatPrice(app.facility.price_in_person) === "Not given" ? "text-slate-500" : undefined}
+              >
+                {formatPrice(app.facility.price_in_person)}
+              </span>
+            </Field>
+            {app.facility.price_video !== undefined && app.facility.price_video !== null && (
+              <Field label="Video visit price">
+                <span data-testid="price-video">
+                  {formatPrice(app.facility.price_video)}
+                  {app.facility.video_enabled === false ? " (video visits off)" : ""}
+                </span>
+              </Field>
+            )}
           </div>
         </div>
 
