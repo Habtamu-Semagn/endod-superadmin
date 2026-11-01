@@ -31,6 +31,9 @@ test("approve, with a confirmation and a fresh code", async ({ page }) => {
   await expect(page.getByTestId("license-number")).toHaveText("MOH/TENA/2026");
   await expect(page.getByTestId("map-link")).toHaveAttribute("href", /mlat=9\.010800&mlon=38\.761300/);
   await expect(page.getByText("contact@tena.example")).toBeVisible();
+  // The price the hospital will be listed with once approved.
+  await expect(page.getByTestId("price-in-person")).toHaveText("ETB 250.00");
+  await expect(page.getByTestId("price-video")).toHaveCount(0);
 
   await page.getByRole("button", { name: "Approve" }).click();
   const dialog = page.getByTestId("approve-dialog");
@@ -44,6 +47,19 @@ test("approve, with a confirmation and a fresh code", async ({ page }) => {
   const approved = page.getByTestId("audit-event").filter({ hasText: "Hospital approved" }).filter({ hasText: "Tena Clinic" });
   await expect(approved).toHaveCount(1);
   await expect(approved).toContainText("approve-");
+});
+
+test("the visit prices are shown, and an application without them says so", async ({ page }) => {
+  await signedInAdmin(page, "price");
+  // Free in-person visits, and a video price.
+  await page.goto(`/super-admin/verifications/${STUB.BETHEL}`);
+  await expect(page.getByTestId("price-in-person")).toHaveText("ETB 0.00 (free)");
+  await expect(page.getByTestId("price-video")).toHaveText("ETB 120.00");
+  // An older application, from before the hospital service asked for a price.
+  await page.goto(`/super-admin/verifications/${STUB.DRAFT}`);
+  await expect(page.getByTestId("license-number")).toHaveText("MOH/ADC/2026");
+  await expect(page.getByTestId("price-in-person")).toHaveText("Not given");
+  await expect(page.getByTestId("price-video")).toHaveCount(0);
 });
 
 test("approving an unsubmitted application shows the hospital service's 409", async ({ page }) => {

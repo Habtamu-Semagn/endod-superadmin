@@ -37,6 +37,11 @@ def test_list_and_read_applications(client, stub, admin):
     detail = client.get(f"/applications/{stub.TENA}", headers=admin[0]).json()
     assert detail["documents"]["license_number"] == "MOH/TENA/2026"
     assert detail["location"]["latitude"] == pytest.approx(9.0108)
+    # The prices are passed on as the hospital service sends them (birr text).
+    assert detail["facility"]["price_in_person"] == "250.00"
+    assert client.get(f"/applications/{stub.BETHEL}", headers=admin[0]).json()["facility"]["price_video"] == "120.00"
+    # An older application (or hospital service) without them: nothing is made up.
+    assert "price_in_person" not in client.get(f"/applications/{stub.DRAFT}", headers=admin[0]).json()["facility"]
     # Every call carried the platform key.
     assert ("GET", f"/platform/applications/{stub.TENA}") in stub.app.state.calls
 
