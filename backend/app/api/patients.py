@@ -74,25 +74,25 @@ def _audited(principal: Principal, action: str, target_id: Optional[str], call: 
 
 
 def _changed(principal: Principal, action: str, target_id: str, call: Callable[[], Dict[str, Any]],
-             detail: Dict[str, Any]) -> Dict[str, Any]:
+             detail: Dict[str, Any], target_type: str = TARGET) -> Dict[str, Any]:
     """A change: ``pending`` is committed before the platform is called, then
     the outcome (``success``, or ``failure`` with the error's class)."""
     attempt = uuid.uuid4().hex
-    _record(principal, action, AuditResult.PENDING, target_id, None, {**detail, "attempt": attempt})
+    _record(principal, action, AuditResult.PENDING, target_id, None, {**detail, "attempt": attempt}, target_type)
     try:
         result = call()
     except ApiError as exc:
         _record(principal, action, AuditResult.FAILURE, target_id, None,
                 {**detail, "attempt": attempt, "error_class": exc.code, "status": exc.status_code,
-                 "error": exc.message})
+                 "error": exc.message}, target_type)
         raise
     except Exception as exc:
         _record(principal, action, AuditResult.FAILURE, target_id, None,
-                {**detail, "attempt": attempt, "error_class": type(exc).__name__})
+                {**detail, "attempt": attempt, "error_class": type(exc).__name__}, target_type)
         raise
     name = result.get("name")
     _record(principal, action, AuditResult.SUCCESS, target_id, name if isinstance(name, str) else None,
-            {**detail, "attempt": attempt})
+            {**detail, "attempt": attempt}, target_type)
     return result
 
 
