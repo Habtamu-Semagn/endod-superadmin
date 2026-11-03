@@ -84,6 +84,17 @@ browser ── https ──> nginx (sets X-Endod-Client-IP, X-Endod-Edge-Key) �
 - **Digital cards**: an Endod ID or the card's QR link; valid or not (the
   signature, when the link has one, and the account), issue date, account
   status. Audited.
+- **Service fee** (the patient platform's `/internal/admin/fees`; its
+  `docs/service-fee.md`): Endod's fee on every payment a patient makes for a
+  hospital service (bookings, lab tests, imaging, any charge), paid by the
+  patient. A flat amount in ETB (default 25) plus an optional percentage, or
+  off; the page shows what a 200 ETB bill becomes. Changing it needs a fresh
+  TOTP and a reason (audited here and on the platform, with the admin's email);
+  the platform sends it to the hospital service at once.
+- **Fees**: Endod's fee books per hospital and period: fees collected online
+  by Endod, owed by the hospital (the patient paid it the total), settled; the
+  payments behind them; owed fees marked settled with the reference of the
+  hospital's payment (a fresh TOTP, all or nothing, audited).
 - **Locations**: the hospital service's facilities on a Leaflet map
   (OpenStreetMap tiles), by status; those without a location are listed.
 - **System monitoring**: the patient platform (`/health` and its admin

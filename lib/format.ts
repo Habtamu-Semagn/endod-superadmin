@@ -121,3 +121,27 @@ export function formatTime(iso: string | null | undefined): string {
   const date = new Date(iso);
   return Number.isNaN(date.getTime()) ? "—" : `${timeOnly.format(date)} EAT`;
 }
+
+/** Santim (the platform's money unit) as "ETB 1,234.50". */
+export function formatSantim(santim: number | null | undefined): string {
+  if (santim === null || santim === undefined || !Number.isFinite(santim)) return "—";
+  return `ETB ${(santim / 100).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+/** Basis points as a percent: 150 -> "1.5%". */
+export function formatPercent(bp: number): string {
+  return `${(bp / 100).toLocaleString("en-US", { maximumFractionDigits: 2 })}%`;
+}
+
+/** What a bill of `subtotal` santim costs the patient with this fee (the platform's rule). */
+export function feeOn(subtotal: number, enabled: boolean, flatSantim: number, percentBp: number): number {
+  if (!enabled || subtotal <= 0) return 0;
+  return flatSantim + Math.floor((subtotal * percentBp + 5000) / 10000);
+}
+
+export const FEE_STATUS: Record<string, { label: string; className: string }> = {
+  collected: { label: "Collected online", className: "bg-sky-50 text-sky-700 border-sky-200" },
+  owed: { label: "Owed by hospital", className: "bg-amber-50 text-amber-800 border-amber-200" },
+  settled: { label: "Settled", className: "bg-emerald-50 text-emerald-700 border-emerald-200" },
+  refunded: { label: "Refunded", className: "bg-slate-100 text-slate-600 border-slate-200" },
+};

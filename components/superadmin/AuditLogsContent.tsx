@@ -37,6 +37,8 @@ const ACTION_LABELS: Record<string, string> = {
   patient_suspend: "Patient account suspended",
   patient_reactivate: "Patient account reactivated",
   card_check: "Digital card checked",
+  fee_settings_change: "Service fee changed",
+  fee_settle: "Hospital fees settled",
 };
 
 const RESULT = {

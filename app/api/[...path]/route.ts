@@ -44,6 +44,10 @@ const RULES: Rule[] = [
   { pattern: /^patients\/DE[0-9]{6}\/(suspend|reactivate)$/, methods: ["POST"] },
   { pattern: /^cards\/DE[0-9]{6}$/, methods: ["GET"] },
   { pattern: /^system\/health$/, methods: ["GET"] },
+  // Endod's service fee and fee report (the patient platform, through the admin API).
+  { pattern: /^fees$/, methods: ["GET", "POST"] },
+  { pattern: /^fees\/(summary|entries)$/, methods: ["GET"] },
+  { pattern: /^fees\/settle$/, methods: ["POST"] },
   { pattern: /^audit$/, methods: ["GET"] },
   { pattern: /^admins$/, methods: ["GET"] },
 ];

@@ -19,6 +19,8 @@ export default function Sidebar({ collapsed, onToggle, admin, pendingCount, onSi
   const isOrganisationsActive = pathname.startsWith("/super-admin/organisations");
   const isUsersActive = pathname.startsWith("/super-admin/users");
   const isDigitalCardsActive = pathname.startsWith("/super-admin/digital-cards");
+  const isServiceFeeActive = pathname.startsWith("/super-admin/service-fee");
+  const isFeesActive = pathname === "/super-admin/fees" || pathname.startsWith("/super-admin/fees/");
   const isVerificationsActive = pathname.startsWith("/super-admin/verifications");
   const isLocationsActive = pathname.startsWith("/super-admin/locations");
   const isSystemMonitoringActive = pathname.startsWith("/super-admin/system-monitoring");
@@ -122,6 +124,40 @@ export default function Sidebar({ collapsed, onToggle, admin, pendingCount, onSi
                 <line x1="2" x2="22" y1="10" y2="10"></line>
               </svg>
               <span className={collapsed ? "hidden" : ""}>Digital Cards</span>
+            </div>
+          </Link>
+
+          <Link
+            data-testid="nav-service-fee"
+            className={`flex items-center justify-between px-3.5 py-2.5 rounded-xl font-semibold text-xs transition ${
+              isServiceFeeActive
+                ? "bg-teal-700 text-white shadow-md shadow-teal-700/25"
+                : "text-slate-600 hover:text-teal-800 hover:bg-slate-50"
+            }`}
+            href="/super-admin/service-fee"
+          >
+            <div className="flex items-center gap-3">
+              <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path d="M12 1v22M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" />
+              </svg>
+              <span className={collapsed ? "hidden" : ""}>Service fee</span>
+            </div>
+          </Link>
+
+          <Link
+            data-testid="nav-fees"
+            className={`flex items-center justify-between px-3.5 py-2.5 rounded-xl font-semibold text-xs transition ${
+              isFeesActive
+                ? "bg-teal-700 text-white shadow-md shadow-teal-700/25"
+                : "text-slate-600 hover:text-teal-800 hover:bg-slate-50"
+            }`}
+            href="/super-admin/fees"
+          >
+            <div className="flex items-center gap-3">
+              <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path d="M3 3v18h18M7 15l4-4 3 3 5-6" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" />
+              </svg>
+              <span className={collapsed ? "hidden" : ""}>Fees</span>
             </div>
           </Link>
 
