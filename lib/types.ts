@@ -267,3 +267,70 @@ export type Company = {
   employees: number;
   admins: number;
 };
+
+/** Endod's service fee (the patient platform's /internal/admin/fees). Money in santim. */
+export type FeeChangeRecord = {
+  version: number;
+  changed_at: string;
+  actor_email: string;
+  reason: string;
+  before: { enabled: boolean; flat_santim: number; percent_bp: number };
+  after: { enabled: boolean; flat_santim: number; percent_bp: number };
+};
+
+export type FeeSettings = {
+  enabled: boolean;
+  flat_santim: number;
+  percent_bp: number;
+  version: number;
+  updated_at: string | null;
+  updated_by: string | null;
+  currency: string;
+  example: { subtotal: number; service_fee: number; total: number };
+  limits: { max_flat_santim: number; max_percent_bp: number };
+  history: FeeChangeRecord[];
+};
+
+export type FeeHospitalRow = {
+  hospital_id: string;
+  hospital_name: string | null;
+  payments: number;
+  subtotal: number;
+  fees_collected: number;
+  fees_owed: number;
+  fees_settled: number;
+  fees_refunded: number;
+  owed_entries: number;
+  fees_total: number;
+};
+
+export type FeeSummary = {
+  currency: string;
+  from: string | null;
+  to: string | null;
+  hospitals: FeeHospitalRow[];
+  totals: Omit<FeeHospitalRow, "hospital_id" | "hospital_name" | "owed_entries">;
+};
+
+export type FeeEntry = {
+  id: string;
+  source_type: "booking" | "charge";
+  source_id: string;
+  hospital_id: string;
+  hospital_name: string | null;
+  dedan_id: string | null;
+  subtotal: number;
+  fee: number;
+  total: number;
+  currency: string;
+  method: string;
+  reference: string | null;
+  collected_by: "endod" | "hospital";
+  paid_at: string;
+  settlement_status: "collected" | "owed" | "settled" | "refunded";
+  settled_at: string | null;
+  settlement_reference: string | null;
+  settled_by: string | null;
+};
+
+export type FeeEntries = { items: FeeEntry[]; total: number; limit: number; offset: number };

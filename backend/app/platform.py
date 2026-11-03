@@ -10,7 +10,7 @@ the hospital and company sides are untouched.
 from __future__ import annotations
 
 import re
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 import httpx
 
@@ -149,3 +149,48 @@ def card(dedan_id: str, signature: Optional[str]) -> Dict[str, Any]:
 def health() -> Dict[str, Any]:
     """The platform's own report (database, Redis, worker, dead letters, outbox)."""
     return _call("GET", "/internal/admin/health")
+
+
+# --- Endod's service fee (the platform's docs/service-fee.md) --------------------------------
+
+FEE_FIELDS = ("enabled", "flat_santim", "percent_bp", "version", "updated_at", "updated_by", "currency", "example",
+              "limits", "history")
+SUMMARY_FIELDS = ("currency", "from", "to", "timezone", "hospitals", "totals")
+ENTRY_FIELDS = ("id", "source_type", "source_id", "hospital_id", "hospital_name", "dedan_id", "subtotal", "fee",
+                "total", "currency", "method", "reference", "collected_by", "paid_at", "settlement_status",
+                "settled_at", "settlement_reference", "settled_by")
+SETTLED_FIELDS = ("hospital_id", "settled", "amount", "currency", "reference", "settled_at")
+
+
+def fees() -> Dict[str, Any]:
+    return _only(_call("GET", "/internal/admin/fees"), FEE_FIELDS)
+
+
+def set_fees(enabled: bool, flat_santim: int, percent_bp: int, reason: str, actor_email: str) -> Dict[str, Any]:
+    return _only(_call("PUT", "/internal/admin/fees", json={
+        "enabled": enabled, "flat_santim": flat_santim, "percent_bp": percent_bp, "reason": reason,
+        "actor_email": actor_email}), FEE_FIELDS)
+
+
+def _params(values: Dict[str, Any]) -> Dict[str, str]:
+    return {key: str(value) for key, value in values.items() if value is not None and value != ""}
+
+
+def fee_summary(start: Optional[str], end: Optional[str]) -> Dict[str, Any]:
+    return _only(_call("GET", "/internal/admin/fees/summary", params=_params({"from": start, "to": end})),
+                 SUMMARY_FIELDS)
+
+
+def fee_entries(**filters: Any) -> Dict[str, Any]:
+    body = _call("GET", "/internal/admin/fees/entries", params=_params(filters))
+    items = body.get("items")
+    if not isinstance(items, list):
+        raise ApiError(502, "Unexpected answer from the patient platform.", "UPSTREAM_INVALID")
+    return {"items": [_only(i, ENTRY_FIELDS) for i in items if isinstance(i, dict)], "total": body.get("total"),
+            "limit": body.get("limit"), "offset": body.get("offset")}
+
+
+def settle_fees(hospital_id: str, entry_ids: List[str], reference: str, actor_email: str) -> Dict[str, Any]:
+    return _only(_call("POST", "/internal/admin/fees/settle", json={
+        "hospital_id": hospital_id, "entry_ids": entry_ids, "reference": reference, "actor_email": actor_email}),
+        SETTLED_FIELDS)

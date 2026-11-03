@@ -120,6 +120,8 @@ def platform_stub(monkeypatch):
     from app import platform
 
     stub_module.app.state.users = stub_module.initial_state()
+    stub_module.app.state.fees = stub_module.initial_fees()
+    stub_module.app.state.ledger = stub_module.initial_ledger()
     stub_module.app.state.calls = []
     stub_module.app.state.degraded = False
     stub_module.app.state.leak = False
